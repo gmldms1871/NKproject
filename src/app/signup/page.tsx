@@ -82,6 +82,8 @@ export default function SignupPage() {
     setError("")
     setSuccess("")
 
+    await supabase.auth.signOut()
+    
     try {
       // Supabase로 회원가입 처리
       const { data, error } = await supabase.auth.signUp({
@@ -91,6 +93,7 @@ export default function SignupPage() {
       })
     
       if (error) {
+        await supabase.auth.signOut();
         setError(error.message)
       } else {
         const user = data.user
