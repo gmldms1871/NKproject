@@ -102,7 +102,6 @@ export default function SignupPage() {
             {
               id: user?.id, // auth.users의 id를 그대로 users 테이블에 저장
               email: values.email,
-              password: values.password, // 실제로는 암호화된 값이 더 안전합니다
               name: values.name,
               phone: values.phone,
               nick_name: values.nickname,
