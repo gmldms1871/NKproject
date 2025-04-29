@@ -191,7 +191,7 @@ export default function HomePage() {
                 <AvatarFallback>{userData?.name?.charAt(0) || user?.email?.charAt(0)}</AvatarFallback>
               </Avatar>
                               <div>
-                <p className="text-sm font-medium">{userData?.name || user?.email}</p>
+                              <Link href="/mypage"><p className="text-sm font-medium">{userData?.name || user?.email}</p></Link>
                 <p className="text-xs text-muted-foreground">{role}</p>
               </div>
             </div>
