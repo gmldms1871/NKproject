@@ -1,3 +1,4 @@
+// src/app/components/Home/HomeSidebar.tsx
 "use client"
 
 import Link from "next/link"
@@ -26,8 +27,8 @@ interface NavItem {
   onClick?: () => void
 }
 
+// HomeSidebar 프로퍼티 타입
 interface HomeSidebarProps {
-  // global 최고 권한 하나만 씁니다
   role: "CEO" | "Teacher" | "Part-time Lecturer" | null
   newReportsCount: number
   onCreateGroup: () => void
@@ -42,7 +43,7 @@ export function HomeSidebar({
 
   const isActive = (href: string) => pathname === href
 
-  // 보여줄 네비게이션 정의 (roles 에 해당 권한이 포함돼야 표시)
+  // 보여줄 네비게이션 정의 (roles에 해당 권한이 포함돼야 표시)
   const navItems: NavItem[] = [
     {
       href: "/",
@@ -102,6 +103,7 @@ export function HomeSidebar({
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      {/* 헤더 */}
       <div className="p-4 border-b border-gray-100">
         <h3 className="font-semibold text-lg text-gray-800">NK Academy</h3>
         <p className="text-sm text-gray-500">
@@ -109,53 +111,66 @@ export function HomeSidebar({
         </p>
       </div>
 
+      {/* 네비게이션 리스트 */}
       <nav className="p-3 space-y-1">
         {navItems.map((item) => {
           // 현재 role이 이 아이템 roles에 포함되는지 체크
-          if (role && !item.roles.includes(role)) return null
+          if (role && !item.roles.includes(role)) {
+            return null
+          }
 
-          return item.onClick ? (
-            <Button
-              key={item.href}
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start text-left"
-              onClick={item.onClick}
-            >
-              <div className="flex items-center gap-2 w-full">
-                {item.icon}
-                <span>{item.label}</span>
-                {item.badge}
-              </div>
-            </Button>
-          ) : (
-            <Link key={item.href} href={item.href} passHref>
+          // onClick 핸들러가 있는 아이템 (버튼형)
+          if (item.onClick) {
+            return (
               <Button
-                variant={isActive(item.href) ? "secondary" : "ghost"}
+                key={item.href}
+                variant="ghost"
                 size="sm"
-                className={cn(
-                  "w-full justify-start text-left",
-                  isActive(item.href)
-                    ? "bg-gray-100 hover:bg-gray-200"
-                    : ""
-                )}
-                asChild
+                className="w-full justify-start text-left"
+                onClick={item.onClick}
               >
-                <a className="flex items-center gap-2 w-full">
+                <div className="flex items-center gap-2 w-full">
                   {item.icon}
                   <span>{item.label}</span>
                   {item.badge}
-                </a>
+                </div>
               </Button>
-            </Link>
+            )
+          }
+
+          // 링크형 아이템: Button asChild 안에 Link만 한 번 사용
+          return (
+            <Button
+              key={item.href}
+              asChild
+              variant={isActive(item.href) ? "secondary" : "ghost"}
+              size="sm"
+              className={cn(
+                "w-full justify-start text-left",
+                isActive(item.href)
+                  ? "bg-gray-100 hover:bg-gray-200"
+                  : ""
+              )}
+            >
+              <Link
+                href={item.href}
+                className="flex items-center gap-2 w-full"
+              >
+                {item.icon}
+                <span>{item.label}</span>
+                {item.badge}
+              </Link>
+            </Button>
           )
         })}
       </nav>
 
+      {/* 빠른 작업 섹션 */}
       <div className="border-t border-gray-100 p-3 mt-2">
         <h4 className="text-xs font-medium text-gray-500 uppercase px-3 mb-2">
           빠른 작업
         </h4>
+
         {role === "CEO" ? (
           <Button
             variant="outline"
@@ -167,19 +182,21 @@ export function HomeSidebar({
             <ChevronRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Link href="/tasks" passHref>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full flex items-center justify-between"
-              asChild
+          <Button
+            key="quick-tasks"
+            asChild
+            variant="outline"
+            size="sm"
+            className="w-full flex items-center justify-between"
+          >
+            <Link
+              href="/tasks"
+              className="flex items-center justify-between w-full"
             >
-              <a>
-                <span>빠른 업무 입력</span>
-                <ChevronRight className="h-4 w-4" />
-              </a>
-            </Button>
-          </Link>
+              <span>빠른 업무 입력</span>
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </Button>
         )}
       </div>
     </div>

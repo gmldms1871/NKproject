@@ -42,7 +42,7 @@ export default function HomePage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // 세션 확인
+        // 1) 세션 확인
         const {
           data: { session },
           error: sessionError,
@@ -54,7 +54,7 @@ export default function HomePage() {
         }
         const currentUser = session.user
 
-        // 사용자 이름 조회
+        // 2) 사용자 이름 조회
         const {
           data: userInfo,
           error: userInfoError,
@@ -66,74 +66,72 @@ export default function HomePage() {
         if (userInfoError) throw userInfoError
         setUserName(userInfo.name)
 
-        // group_memberships 조회
-        const membershipRes = await supabase
-          .from("group_members")
-          .select("group_id, role")
-          .eq("user_id", currentUser.id)
+        // 3) 내 멤버십 조회
+        const { data: _membershipData, error: membershipError } =
+          await supabase
+            .from("group_members")
+            .select("group_id, role")
+            .eq("user_id", currentUser.id)
+        if (membershipError) throw membershipError
+        const safeMembershipData = (_membershipData ?? []) as {
+          group_id: string
+          role: string
+        }[]
 
-        // null 방어
-        const safeMemberships = membershipRes.data ?? []
+        // 4) 내가 소유한 그룹 ID 조회
+        const { data: _ownedGroups, error: ownedError } =
+          await supabase
+            .from("groups")
+            .select("id")
+            .eq("owner_id", currentUser.id)
+        if (ownedError) throw ownedError
+        const safeOwnedGroups = (_ownedGroups ?? []) as { id: string }[]
 
-        // rolesList 세팅 (중복 제거)
-        const distinctRoles = Array.from(
-          new Set(safeMemberships.map((m) => m.role))
+        // 5) 두 결과에서 고유한 그룹 ID 합치기
+        const allGroupIds = Array.from(
+          new Set([
+            ...safeMembershipData.map((m) => m.group_id),
+            ...safeOwnedGroups.map((g) => g.id),
+          ])
         )
-        setRolesList(distinctRoles)
 
-        // highestRole 세팅 (CEO > Teacher > Part-time Lecturer)
-        if (membershipRes.error) {
-          setHighestRole(null)
-        } else {
-          const hr =
-            distinctRoles.includes("CEO")
-              ? "CEO"
-              : distinctRoles.includes("Teacher")
-              ? "Teacher"
-              : distinctRoles.includes("Part-time Lecturer")
-              ? "Part-time Lecturer"
-              : null
-          setHighestRole(hr)
-        }
-
-        // 그룹 데이터 조회
-        const groupIds = safeMemberships.map((m) => m.group_id)
-        if (groupIds.length > 0) {
-          const {
-            data: groupData,
-            error: groupError,
-          } = await supabase
+        // 6) 상세 정보 조회 및 userRole 결합
+        let combined: Group[] = []
+        if (allGroupIds.length > 0) {
+          const { data: _groupData, error: groupError } = await supabase
             .from("groups")
             .select("*")
-            .in("id", groupIds)
+            .in("id", allGroupIds)
           if (groupError) throw groupError
+          const safeGroupData = (_groupData ?? []) as Group[]
 
-          const safeGroupData = groupData ?? []
-          const combined: Group[] = safeGroupData.map((g) => ({
-            ...g,
-            userRole:
-              safeMemberships.find((m) => m.group_id === g.id)?.role ?? null,
-          }))
-          setGroups(combined)
-
-          // CEO이면 새 보고서 조회
-          if (highestRole === "CEO") {
-            const ceoIds = safeMemberships
-              .filter((m) => m.role === "CEO")
-              .map((m) => m.group_id)
-            const {
-              data: reports,
-              error: reportError,
-            } = await supabase
-              .from("reports")
-              .select("id")
-              .in("group_id", ceoIds)
-              .eq("reviewed", false)
-            if (!reportError && reports) {
-              setNewReportsCount(reports.length)
+          combined = safeGroupData.map((g) => {
+            const membership = safeMembershipData.find(
+              (m) => m.group_id === g.id
+            )
+            return {
+              ...g,
+              userRole: membership?.role ?? "CEO",
             }
-          }
+          })
         }
+
+        // 7) 상태 업데이트
+        const rolesOnly = combined
+          .map((g) => g.userRole)
+          .filter((r): r is string => r !== null)
+        setRolesList(Array.from(new Set(rolesOnly)))
+
+        const hr =
+          combined.some((g) => g.userRole === "CEO")
+            ? "CEO"
+            : combined.some((g) => g.userRole === "Teacher")
+            ? "Teacher"
+            : combined.some((g) => g.userRole === "Part-time Lecturer")
+            ? "Part-time Lecturer"
+            : null
+        setHighestRole(hr)
+        setGroups(combined)
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -143,7 +141,7 @@ export default function HomePage() {
 
     fetchData()
 
-    // Realtime 구독
+    // 8) Realtime 구독
     const channel = supabase
       .channel("reports-channel")
       .on(
@@ -202,6 +200,7 @@ export default function HomePage() {
       </div>
     )
   }
+
 
   // 메인 렌더링
   return (
