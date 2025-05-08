@@ -14,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { PostgrestError } from "@supabase/supabase-js"
+import InputSettingsPage from "./settings/input-settings/page"
 import { 
   Select, 
   SelectContent, 
@@ -33,7 +34,9 @@ import {
   Mail,
   UserX,
   BarChart3,
+  Link,
 } from "lucide-react"
+import { WorkInputForm } from "@/app/components/Group/WorkInputForm"
 
 // 타입 정의
 interface Member {
@@ -80,6 +83,13 @@ export default function GroupDetailPage() {
   // UUID는 정수로 변환하지 않고 문자열 그대로 사용
   const groupId = params.id as string
 
+  const [userId, setUserId] = useState<string>("");
+ useEffect(() => {
+   supabase.auth.getSession().then(({ data: { session } }) => {
+     if (session) setUserId(session.user.id);
+   });
+ }, []);
+
   // State 관리
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -93,6 +103,8 @@ export default function GroupDetailPage() {
   const [userRole, setUserRole] = useState<string | null>(null)
   const [isCEO, setIsCEO] = useState(false)
   const [isTeacher, setIsTeacher] = useState(false)
+  const [settingsExist, setSettingsExist] = useState<boolean>(false)
+
 
   // 초대 관련 상태
   const [inviteEmail, setInviteEmail] = useState("")
@@ -366,7 +378,34 @@ export default function GroupDetailPage() {
       supabase.removeChannel(reportsChannel)
       supabase.removeChannel(membersChannel)
     }
-  }, [groupId, router])
+  }, [groupId, router, userRole])
+
+  useEffect(() => {
+        if (!groupId) return
+        supabase
+          .from("input_settings")
+          // count 옵션을 켜야 count 값이 반환됩니다
+          .select("id", { count: "exact", head: true })
+          .eq("group_id", groupId)
+          .then(({ count, error }) => {
+            if (error) {
+              console.error("settingsExist 체크 오류:", error)
+            } else {
+              // count가 1 이상이면 true
+              setSettingsExist((count ?? 0) > 0)
+            }
+          })
+      }, [groupId])
+
+  useEffect(() => {
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        if (session) {
+          setUserId(session.user.id);
+        }
+      });
+  }, []);
+  
 
   // 멤버 초대
   const handleInviteMember = async () => {
@@ -600,6 +639,14 @@ export default function GroupDetailPage() {
               <Users className="h-4 w-4" />
               <span>멤버 관리</span>
             </TabsTrigger>
+            {(isTeacher || isCEO) && (
+      <TabsTrigger value="tasks" className="flex items-center gap-2">
+        <FileText className="h-4 w-4" />
+        <span>업무 입력</span>
+      </TabsTrigger>
+    )}
+
+      
             
             {isTeacher && (
               <TabsTrigger value="reports" className="flex items-center gap-2">
@@ -623,14 +670,21 @@ export default function GroupDetailPage() {
             )}
             
             {isCEO && (
-              <TabsTrigger value="settings" className="flex items-center gap-2">
-                <Settings className="h-4 w-4" />
-                <span>설정</span>
-              </TabsTrigger>
-            )}
+           <TabsTrigger value="settings" className="flex items-center gap-2">
+             <Settings className="h-4 w-4" />
+             <span>설정</span>
+           </TabsTrigger>
+         )}
           </TabsList>
 
           <div className="bg-white rounded-lg border border-gray-200 p-6">
+            {/* ===== 업무 입력 탭 ===== */}
+    {(isTeacher || isCEO) && (
+  <TabsContent value="tasks">
+    <WorkInputForm groupId={groupId} userId={userId} />
+  </TabsContent>
+    )}
+
             {/* 멤버 관리 탭 */}
             <TabsContent value="members" className="mt-0">
               <div className="space-y-6">
@@ -740,6 +794,26 @@ export default function GroupDetailPage() {
                 </div>
               </div>
             </TabsContent>
+
+            {(isTeacher || isCEO) && (
+        <TabsContent value="tasks" className="mt-0">
+          {isCEO && !settingsExist ? (
+               <p className="text-center text-gray-500">
+                 아직 업무 입력 항목이 없습니다.{" "}
+                 <Link
+                   href={`/group/${groupId}/settings/input-settings`}
+                   className="text-blue-600 underline"
+                 >
+                   설정 탭
+                 </Link>
+                 으로 이동해 먼저 추가해주세요.
+               </p>
+             ) : (
+               // 설정이 하나라도 있거나, Teacher/PL이면 폼 노출
+               <WorkInputForm groupId={groupId} userId={userId} />
+             )}
+        </TabsContent>
+      )}
 
             {/* 보고서 탭 */}
             {isTeacher && (
@@ -890,37 +964,12 @@ export default function GroupDetailPage() {
               </TabsContent>
             )}
 
-            {/* 설정 탭 */}
-            {isCEO && (
-              <TabsContent value="settings" className="mt-0">
-                <div className="space-y-6">
-                  <h2 className="text-lg font-medium">그룹 설정</h2>
-                  <Card className="border border-gray-200">
-                    <CardContent className="pt-6">
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="group-name" className="text-sm font-medium">그룹 이름</Label>
-                          <Input id="group-name" defaultValue={group?.name} />
-                        </div>
-                        
-                        <Button className="w-full md:w-auto mt-2">
-                          그룹 정보 업데이트
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Separator />
-                  
-                  <div className="pt-4">
-                    <h3 className="text-md font-medium mb-4 text-red-600">위험 영역</h3>
-                    <Button variant="destructive" className="w-full md:w-auto">
-                      그룹 삭제
-                    </Button>
-                  </div>
-                </div>
-              </TabsContent>
-            )}
+{isCEO && (
+             <TabsContent value="settings" className="mt-0">
+               {/* InputSettingsPage: CEO가 항목을 표 형태로 보고 관리 */}
+               <InputSettingsPage />
+             </TabsContent>
+           )}
           </div>
         </Tabs>
       </div>
