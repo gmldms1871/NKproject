@@ -1,11 +1,11 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { signOut } from "@/lib/auth"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { signOut } from "@/lib/auth";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,48 +14,48 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import { useToast } from "@/hooks/use-toast"
+} from "@/components/ui/dropdown-menu";
+import { useToast } from "@/hooks/use-toast";
 
 interface UserNavProps {
   user: {
-    name: string | null
-    email: string
-  }
+    name: string | null;
+    email: string;
+  };
 }
 
 export function UserNav({ user }: UserNavProps) {
-  const [isLoading, setIsLoading] = useState(false)
-  const { toast } = useToast()
-  const router = useRouter()
+  const [isLoading, setIsLoading] = useState(false);
+  const { toast } = useToast();
+  const router = useRouter();
 
   const handleSignOut = async () => {
-    setIsLoading(true)
+    setIsLoading(true);
     try {
-      const result = await signOut()
+      const result = await signOut();
       if (result.success) {
         toast({
-          title: "Signed out",
-          description: "You have been signed out successfully.",
-        })
-        router.push("/login")
+          title: "로그아웃 완료",
+          description: "성공적으로 로그아웃되었습니다.",
+        });
+        router.push("/login");
       } else {
         toast({
-          title: "Sign out failed",
-          description: result.error || "An error occurred while signing out.",
+          title: "로그아웃 실패",
+          description: result.error || "로그아웃 중 오류가 발생했습니다.",
           variant: "destructive",
-        })
+        });
       }
-    } catch {
+    } catch (error) {
       toast({
-        title: "Sign out failed",
-        description: "An unexpected error occurred. Please try again.",
+        title: "로그아웃 실패",
+        description: "예기치 않은 오류가 발생했습니다. 다시 시도해주세요.",
         variant: "destructive",
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   return (
     <DropdownMenu>
@@ -71,24 +71,24 @@ export function UserNav({ user }: UserNavProps) {
       <DropdownMenuContent className="w-56" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">{user.name || "User"}</p>
+            <p className="text-sm font-medium leading-none">{user.name || "사용자"}</p>
             <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem asChild>
-            <Link href="/dashboard/profile">Profile</Link>
+            <Link href="/dashboard/profile">프로필</Link>
           </DropdownMenuItem>
           <DropdownMenuItem asChild>
-            <Link href="/dashboard/settings">Settings</Link>
+            <Link href="/dashboard/settings">설정</Link>
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut} disabled={isLoading} className="cursor-pointer">
-          {isLoading ? "Signing out..." : "Sign out"}
+          {isLoading ? "로그아웃 중..." : "로그아웃"}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }

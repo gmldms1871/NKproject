@@ -1,35 +1,35 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { redirect } from "next/navigation"
-import { getCurrentUser, getUserProfile } from "@/lib/supabase"
-import { DashboardNav } from "@/components/dashboard-nav"
-import { UserNav } from "@/components/user-nav"
-import { Button } from "@/components/ui/button"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { Menu } from "lucide-react"
-import type { User } from "@/types"
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getCurrentUser, getUserProfile } from "@/lib/supabase";
+import { DashboardNav } from "@/components/dashboard-nav";
+import { UserNav } from "@/components/user-nav";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Menu } from "lucide-react";
+import type { User } from "@/types";
 
 export default function DashboardLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode
+  children: React.ReactNode;
 }>) {
-  const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const currentUser = await getCurrentUser()
+        const currentUser = await getCurrentUser();
         if (!currentUser) {
-          redirect("/login")
+          redirect("/login");
         }
 
-        const profile = await getUserProfile(currentUser.id)
+        const profile = await getUserProfile(currentUser.id);
         if (profile) {
           setUser({
             id: currentUser.id,
@@ -38,7 +38,7 @@ export default function DashboardLayout({
             nick_name: profile.nick_name,
             phone: profile.phone,
             created_at: profile.created_at,
-          })
+          });
         } else {
           setUser({
             id: currentUser.id,
@@ -47,29 +47,29 @@ export default function DashboardLayout({
             nick_name: null,
             phone: null,
             created_at: new Date().toISOString(),
-          })
+          });
         }
       } catch (error) {
-        console.error("Error checking auth:", error)
-        redirect("/login")
+        console.error("인증 확인 오류:", error);
+        redirect("/login");
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    checkAuth()
-  }, [])
+    checkAuth();
+  }, []);
 
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
       </div>
-    )
+    );
   }
 
   if (!user) {
-    redirect("/login")
+    redirect("/login");
   }
 
   return (
@@ -79,20 +79,20 @@ export default function DashboardLayout({
           <SheetTrigger asChild>
             <Button variant="outline" size="icon" className="md:hidden">
               <Menu className="h-5 w-5" />
-              <span className="sr-only">Toggle navigation menu</span>
+              <span className="sr-only">내비게이션 메뉴 토글</span>
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="w-72">
             <div className="grid gap-6 py-6">
               <div className="grid gap-3">
-                <h3 className="text-lg font-semibold">Navigation</h3>
+                <h3 className="text-lg font-semibold">내비게이션</h3>
                 <DashboardNav />
               </div>
             </div>
           </SheetContent>
         </Sheet>
         <Link href="/dashboard" className="flex items-center gap-2 font-semibold">
-          Report Management System
+          보고서 관리 시스템
         </Link>
         <div className="ml-auto flex items-center gap-4">
           {user && <UserNav user={{ name: user.name, email: user.email }} />}
@@ -107,5 +107,5 @@ export default function DashboardLayout({
         <main className="flex flex-1 flex-col p-4 md:p-6">{children}</main>
       </div>
     </div>
-  )
+  );
 }

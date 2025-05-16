@@ -33,8 +33,8 @@ export default function CreateGroupPage() {
       const currentUser = await getCurrentUser();
       if (!currentUser) {
         toast({
-          title: "Authentication error",
-          description: "You must be logged in to create a group.",
+          title: "인증 오류",
+          description: "그룹을 생성하려면 로그인해야 합니다.",
           variant: "destructive",
         });
         return;
@@ -43,25 +43,25 @@ export default function CreateGroupPage() {
       const result = await createGroup(groupName, currentUser.id);
 
       if (result.success && result.group) {
-        // Create default input settings for the new group
+        // 새 그룹에 대한 기본 입력 설정 생성
         await createDefaultInputSettings(result.group.id);
 
         toast({
-          title: "Group created",
-          description: `${groupName} has been created successfully.`,
+          title: "그룹 생성됨",
+          description: `${groupName} 그룹이 성공적으로 생성되었습니다.`,
         });
         router.push(`/dashboard/groups/${result.group.id}`);
       } else {
         toast({
-          title: "Failed to create group",
-          description: result.error || "An error occurred while creating the group.",
+          title: "그룹 생성 실패",
+          description: result.error || "그룹 생성 중 오류가 발생했습니다.",
           variant: "destructive",
         });
       }
     } catch (error) {
       toast({
-        title: "Failed to create group",
-        description: "An unexpected error occurred. Please try again.",
+        title: "그룹 생성 실패",
+        description: "예기치 않은 오류가 발생했습니다. 다시 시도해주세요.",
         variant: "destructive",
       });
     } finally {
@@ -71,21 +71,19 @@ export default function CreateGroupPage() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <h1 className="mb-6 text-3xl font-bold">Create a New Group</h1>
+      <h1 className="mb-6 text-3xl font-bold">새 그룹 만들기</h1>
       <Card>
         <form onSubmit={handleSubmit}>
           <CardHeader>
-            <CardTitle>Group Details</CardTitle>
-            <CardDescription>
-              Create a new group to manage reports and collaborate with team members.
-            </CardDescription>
+            <CardTitle>그룹 정보</CardTitle>
+            <CardDescription>보고서를 관리하고 팀원들과 협업할 새 그룹을 만드세요.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Group Name</Label>
+              <Label htmlFor="name">그룹 이름</Label>
               <Input
                 id="name"
-                placeholder="Enter group name"
+                placeholder="그룹 이름 입력"
                 value={groupName}
                 onChange={(e) => setGroupName(e.target.value)}
                 required
@@ -99,10 +97,10 @@ export default function CreateGroupPage() {
               onClick={() => router.back()}
               disabled={isLoading}
             >
-              Cancel
+              취소
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? "Creating..." : "Create Group"}
+              {isLoading ? "생성 중..." : "그룹 생성"}
             </Button>
           </CardFooter>
         </form>
