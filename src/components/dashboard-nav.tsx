@@ -1,68 +1,57 @@
 "use client";
 
-import type React from "react";
-
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { BarChart3, FileText, LayoutDashboard, Settings, Users } from "lucide-react";
-
-interface NavItem {
-  title: string;
-  href: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
-
-const navItems: NavItem[] = [
-  {
-    title: "대시보드",
-    href: "/dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "그룹",
-    href: "/dashboard/groups",
-    icon: Users,
-  },
-  {
-    title: "보고서",
-    href: "/dashboard/reports",
-    icon: FileText,
-  },
-  {
-    title: "통계",
-    href: "/dashboard/statistics",
-    icon: BarChart3,
-  },
-  {
-    title: "설정",
-    href: "/dashboard/settings",
-    icon: Settings,
-  },
-];
+import { Button } from "@/components/ui/button";
+import { FileText, Home, Settings, User, Users } from "lucide-react";
 
 export function DashboardNav() {
   const pathname = usePathname();
 
+  const navItems = [
+    {
+      title: "대시보드",
+      href: "/dashboard",
+      icon: Home,
+    },
+    {
+      title: "그룹",
+      href: "/dashboard/groups",
+      icon: Users,
+    },
+    {
+      title: "보고서",
+      href: "/dashboard/reports",
+      icon: FileText,
+    },
+    {
+      title: "프로필",
+      href: "/dashboard/profile",
+      icon: User,
+    },
+    {
+      title: "설정",
+      href: "/dashboard/settings",
+      icon: Settings,
+    },
+  ];
+
   return (
-    <nav className="grid items-start gap-2">
-      {navItems.map((item, index) => {
-        const isActive = pathname === item.href;
-        return (
-          <Link
-            key={index}
-            href={item.href}
-            className={cn(
-              "group flex items-center rounded-md px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground",
-              isActive ? "bg-accent" : "transparent",
-              isActive ? "text-accent-foreground" : "text-muted-foreground"
-            )}
-          >
+    <nav className="grid gap-2">
+      {navItems.map((item) => (
+        <Button
+          key={item.href}
+          variant={pathname === item.href ? "secondary" : "ghost"}
+          className={cn("justify-start", pathname === item.href ? "bg-secondary" : "")}
+          asChild
+        >
+          <Link href={item.href}>
             <item.icon className="mr-2 h-4 w-4" />
-            <span>{item.title}</span>
+            {item.title}
           </Link>
-        );
-      })}
+        </Button>
+      ))}
     </nav>
   );
 }

@@ -1,325 +1,380 @@
-import { supabase } from "./supabase";
-import type { Group, GroupMember, UserRole } from "@/types";
+import { supabase } from "@/lib/supabase"
+import { getCurrentUser } from "@/lib/supabase"
+import type {
+  Group,
+  FormattedGroupMember,
+  FormattedReport,
+  GroupMemberWithUser,
+  ReportWithUser,
+  UserWithEmail,
+} from "../../types"
 
-interface GroupInviteResult {
-  success: boolean;
-  invited?: number;
-  notFound?: string[];
-  error?: string;
-}
-
-// 그룹 생성
-export const createGroup = async (
-  name: string,
-  ownerId: string
-): Promise<{ success: boolean; group?: Group; error?: string }> => {
-  try {
-    // 1. 그룹 생성
-    const { data: groupData, error: groupError } = await supabase
-      .from("groups")
-      .insert({
-        name,
-        owner_id: ownerId,
-      })
-      .select()
-      .single();
-
-    if (groupError) throw groupError;
-
-    // 2. 그룹 멤버로 소유자 추가 (CEO 역할)
-    const { error: memberError } = await supabase.from("group_members").insert({
-      group_id: groupData.id,
-      user_id: ownerId,
-      role: "ceo",
-      invited_at: new Date().toISOString(),
-      accepted_at: new Date().toISOString(), // 소유자는 자동으로 수락됨
-    });
-
-    if (memberError) throw memberError;
-
-    return { success: true, group: groupData as Group };
-  } catch (error) {
-    console.error("Error creating group:", error instanceof Error ? error.message : String(error));
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
-};
-
-// 그룹 초대
-export const inviteToGroup = async (
+// 그룹 상세 정보 가져오기
+export const getGroupDetails = async (
   groupId: string,
-  emails: string[],
-  role: string
-): Promise<GroupInviteResult> => {
+): Promise<{ success: boolean; group?: Group; isOwner?: boolean; isManager?: boolean; error?: string }> => {
   try {
-    // 1. 이메일로 사용자 찾기
-    const { data: users, error: userError } = await supabase
-      .from("users")
-      .select("id, email")
-      .in("email", emails);
-
-    if (userError) throw userError;
-
-    // 2. 찾은 사용자들을 그룹에 초대
-    const invites = users.map((user) => ({
-      group_id: groupId,
-      user_id: user.id,
-      role,
-      invited_at: new Date().toISOString(),
-      accepted_at: null, // 초대는 수락 전까지 null
-    }));
-
-    if (invites.length > 0) {
-      const { error: inviteError } = await supabase.from("group_members").insert(invites);
-
-      if (inviteError) throw inviteError;
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
     }
 
-    // 3. 시스템에 없는 이메일 목록 반환 (실제 구현에서는 이메일 초대 발송 로직 추가)
-    const existingEmails = users.map((user) => user.email);
-    const notFoundEmails = emails.filter((email) => !existingEmails.includes(email));
+    // 그룹 정보 가져오기
+    const { data: group, error } = await supabase.from("groups").select("*").eq("id", groupId).single()
 
-    return {
-      success: true,
-      invited: users.length,
-      notFound: notFoundEmails,
-    };
-  } catch (error) {
-    console.error(
-      "Error inviting to group:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
-};
+    if (error) {
+      throw error
+    }
 
-// 초대 수락
-export const acceptInvitation = async (
-  groupMemberId: string
-): Promise<{ success: boolean; error?: string }> => {
-  try {
-    const { error } = await supabase
+    if (!group) {
+      return { success: false, error: "그룹을 찾을 수 없습니다." }
+    }
+
+    // 사용자의 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
       .from("group_members")
-      .update({
-        accepted_at: new Date().toISOString(),
-      })
-      .eq("id", groupMemberId);
+      .select("role")
+      .eq("group_id", groupId)
+      .eq("user_id", currentUser.id)
+      .single()
 
-    if (error) throw error;
+    if (membershipError && membershipError.code !== "PGRST116") {
+      // PGRST116는 결과가 없을 때 발생하는 에러 코드
+      throw membershipError
+    }
 
-    return { success: true };
+    // 그룹 소유자 또는 멤버십이 있는지 확인
+    const isOwner = group.owner_id === currentUser.id
+    const isManager = membership?.role === "manager" || isOwner
+
+    // 소유자나 멤버가 아니면 접근 거부
+    if (!isOwner && !membership) {
+      return { success: false, error: "이 그룹에 접근할 권한이 없습니다." }
+    }
+
+    return { success: true, group, isOwner, isManager }
   } catch (error) {
-    console.error(
-      "Error accepting invitation:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
+    console.error("그룹 상세 정보 가져오기 오류:", error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
-};
-
-// 초대 거절/취소
-export const rejectInvitation = async (
-  groupMemberId: string
-): Promise<{ success: boolean; error?: string }> => {
-  try {
-    const { error } = await supabase.from("group_members").delete().eq("id", groupMemberId);
-
-    if (error) throw error;
-
-    return { success: true };
-  } catch (error) {
-    console.error(
-      "Error rejecting invitation:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
-};
-
-// 그룹 정보 가져오기
-export const getGroupDetails = async (
-  groupId: string
-): Promise<{ success: boolean; group?: Group; error?: string }> => {
-  try {
-    const { data, error } = await supabase
-      .from("groups")
-      .select(
-        `
-        *,
-        owner:users!groups_owner_id_fkey(id, name, email)
-      `
-      )
-      .eq("id", groupId)
-      .single();
-
-    if (error) throw error;
-
-    return { success: true, group: data as Group };
-  } catch (error) {
-    console.error(
-      "Error getting group details:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
-};
+}
 
 // 그룹 멤버 목록 가져오기
 export const getGroupMembers = async (
-  groupId: string
-): Promise<{ success: boolean; members?: GroupMember[]; error?: string }> => {
+  groupId: string,
+): Promise<{ success: boolean; members?: FormattedGroupMember[]; error?: string }> => {
   try {
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
+
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
+      .from("group_members")
+      .select("role")
+      .eq("group_id", groupId)
+      .eq("user_id", currentUser.id)
+      .single()
+
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
+
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", groupId)
+      .single()
+
+    if (groupError) {
+      throw groupError
+    }
+
+    // 소유자나 멤버가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    if (!isOwner && !membership) {
+      return { success: false, error: "이 그룹에 접근할 권한이 없습니다." }
+    }
+
+    // 그룹 멤버 가져오기
     const { data, error } = await supabase
       .from("group_members")
-      .select(
-        `
+      .select(`
         id,
         role,
         invited_at,
         accepted_at,
-        user_id,
-        user:user_id(id, name, email, nick_name, phone)
-      `
-      )
-      .eq("group_id", groupId);
+        users:user_id (
+          id,
+          name,
+          email
+        )
+      `)
+      .eq("group_id", groupId)
 
-    if (error) throw error;
+    if (error) {
+      throw error
+    }
 
-    return { success: true, members: data as GroupMember[] };
+    // 멤버 데이터 형식 변환
+    const members = data as GroupMemberWithUser[]
+    const formattedMembers: FormattedGroupMember[] = members.map((member) => ({
+      id: member.id,
+      group_id: groupId,
+      user_id: member.users.id,
+      user_name: member.users.name,
+      user_email: member.users.email,
+      role: member.role,
+      invited_at: member.invited_at,
+      accepted_at: member.accepted_at,
+    }))
+
+    return { success: true, members: formattedMembers }
   } catch (error) {
-    console.error(
-      "Error getting group members:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
+    console.error("그룹 멤버 가져오기 오류:", error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
-};
+}
 
-// 사용자의 대기 중인 초대 가져오기
-export const getPendingInvitations = async (
-  userId: string
-): Promise<{ success: boolean; invitations?: Record<string, unknown>[]; error?: string }> => {
+// 그룹 보고서 목록 가져오기
+export const getGroupReports = async (
+  groupId: string,
+): Promise<{ success: boolean; reports?: FormattedReport[]; error?: string }> => {
   try {
-    const { data, error } = await supabase
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
+
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
       .from("group_members")
-      .select(
-        `
+      .select("role")
+      .eq("group_id", groupId)
+      .eq("user_id", currentUser.id)
+      .single()
+
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
+
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", groupId)
+      .single()
+
+    if (groupError) {
+      throw groupError
+    }
+
+    // 소유자나 멤버가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    if (!isOwner && !membership) {
+      return { success: false, error: "이 그룹에 접근할 권한이 없습니다." }
+    }
+
+    // 그룹 보고서 가져오기
+    const { data, error } = await supabase
+      .from("reports")
+      .select(`
         id,
-        role,
-        invited_at,
-        groups:group_id(id, name, owner_id),
-        owner:groups!inner(owner:users!groups_owner_id_fkey(name))
-      `
-      )
-      .eq("user_id", userId)
-      .is("accepted_at", null);
+        content,
+        created_at,
+        summary,
+        reviewed,
+        users:auther_id (
+          id,
+          name,
+          email
+        )
+      `)
+      .eq("group_id", groupId)
+      .order("created_at", { ascending: false })
 
-    if (error) throw error;
+    if (error) {
+      throw error
+    }
 
-    return { success: true, invitations: data };
+    // 보고서 데이터 형식 변환
+    const reports = data as ReportWithUser[]
+    const formattedReports: FormattedReport[] = reports.map((report) => ({
+      id: report.id,
+      content: report.content,
+      user_id: report.users.id,
+      user_name: report.users.name,
+      user_email: report.users.email,
+      group_id: groupId,
+      created_at: report.created_at,
+      summary: report.summary,
+      reviewed: report.reviewed,
+      auther_id: report.users.id,
+    }))
+
+    return { success: true, reports: formattedReports }
   } catch (error) {
-    console.error(
-      "Error getting pending invitations:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
+    console.error("그룹 보고서 가져오기 오류:", error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
-};
+}
 
-// 그룹 설정 업데이트
+// 그룹 업데이트
 export const updateGroup = async (
   groupId: string,
-  updates: { name?: string }
+  updates: { name?: string },
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    const { error } = await supabase.from("groups").update(updates).eq("id", groupId);
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
 
-    if (error) throw error;
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", groupId)
+      .single()
 
-    return { success: true };
-  } catch (error) {
-    console.error("Error updating group:", error instanceof Error ? error.message : String(error));
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
-};
+    if (groupError) {
+      throw groupError
+    }
 
-// 멤버 역할 변경
-export const updateMemberRole = async (
-  groupMemberId: string,
-  newRole: UserRole
-): Promise<{ success: boolean; error?: string }> => {
-  try {
-    const { error } = await supabase
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
       .from("group_members")
-      .update({ role: newRole })
-      .eq("id", groupMemberId);
+      .select("role")
+      .eq("group_id", groupId)
+      .eq("user_id", currentUser.id)
+      .single()
 
-    if (error) throw error;
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
 
-    return { success: true };
+    // 소유자나 관리자가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    const isManager = membership?.role === "manager"
+    if (!isOwner && !isManager) {
+      return { success: false, error: "그룹을 수정할 권한이 없습니다." }
+    }
+
+    // 그룹 업데이트
+    const { error } = await supabase.from("groups").update(updates).eq("id", groupId)
+
+    if (error) {
+      throw error
+    }
+
+    return { success: true }
   } catch (error) {
-    console.error(
-      "Error updating member role:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
+    console.error("그룹 업데이트 오류:", error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
-};
+}
 
-// 멤버 제거
-export const removeMember = async (
-  groupMemberId: string
-): Promise<{ success: boolean; error?: string }> => {
+// 그룹에 멤버 초대
+export const inviteToGroup = async (
+  groupId: string,
+  emails: string[],
+  role: string,
+): Promise<{ success: boolean; invited?: number; notFound?: string[]; error?: string }> => {
   try {
-    const { error } = await supabase.from("group_members").delete().eq("id", groupMemberId);
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
 
-    if (error) throw error;
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", groupId)
+      .single()
 
-    return { success: true };
+    if (groupError) {
+      throw groupError
+    }
+
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
+      .from("group_members")
+      .select("role")
+      .eq("group_id", groupId)
+      .eq("user_id", currentUser.id)
+      .single()
+
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
+
+    // 소유자나 관리자가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    const isManager = membership?.role === "manager"
+    if (!isOwner && !isManager) {
+      return { success: false, error: "멤버를 초대할 권한이 없습니다." }
+    }
+
+    // 이메일로 사용자 찾기
+    const { data, error: usersError } = await supabase.from("users").select("id, email").in("email", emails)
+
+    if (usersError) {
+      throw usersError
+    }
+
+    // 찾은 사용자와 찾지 못한 이메일 구분
+    const foundUsers = (data as UserWithEmail[]) || []
+    const foundEmails = foundUsers.map((user) => user.email.toLowerCase())
+    const notFoundEmails = emails.filter((email) => !foundEmails.includes(email.toLowerCase()))
+
+    // 이미 그룹에 속한 사용자 필터링
+    const { data: existingMembers, error: existingError } = await supabase
+      .from("group_members")
+      .select("user_id")
+      .eq("group_id", groupId)
+      .in(
+        "user_id",
+        foundUsers.map((user) => user.id),
+      )
+
+    if (existingError) {
+      throw existingError
+    }
+
+    const existingUserIds = (existingMembers || []).map((member) => member.user_id)
+    const newUsers = foundUsers.filter((user) => !existingUserIds.includes(user.id))
+
+    // 새 멤버 초대
+    if (newUsers.length > 0) {
+      const invitations = newUsers.map((user) => ({
+        group_id: groupId,
+        user_id: user.id,
+        role,
+        invited_at: new Date().toISOString(),
+      }))
+
+      const { error: inviteError } = await supabase.from("group_members").insert(invitations)
+
+      if (inviteError) {
+        throw inviteError
+      }
+    }
+
+    return {
+      success: true,
+      invited: newUsers.length,
+      notFound: notFoundEmails.length > 0 ? notFoundEmails : undefined,
+    }
   } catch (error) {
-    console.error("Error removing member:", error instanceof Error ? error.message : String(error));
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
+    console.error("그룹 초대 오류:", error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
-};
-
-// 기본 입력 설정 생성
-export const createDefaultInputSettings = async (
-  groupId: string
-): Promise<{ success: boolean; error?: string }> => {
-  try {
-    // 기본 입력 설정 정의
-    const defaultSettings = [
-      // 상태 필드
-      { field_name: "숙제·테스트 관리", field_type: "select", is_required: true },
-      { field_name: "교재 점검", field_type: "select", is_required: true },
-      { field_name: "상담 진행", field_type: "select", is_required: true },
-      { field_name: "분석", field_type: "select", is_required: true },
-
-      // 추가 입력 필드
-      { field_name: "테스트 입력 상세", field_type: "text", is_required: false },
-      { field_name: "숙제 관련 상세", field_type: "text", is_required: false },
-      { field_name: "상담 내용", field_type: "text", is_required: false },
-      { field_name: "추가 업무", field_type: "text", is_required: false },
-    ] as const;
-
-    // 설정 데이터 준비
-    const inputSettings = defaultSettings.map((setting) => ({
-      group_id: groupId,
-      field_name: setting.field_name,
-      field_type: setting.field_type,
-      is_inquired: setting.is_required, // is_required를 is_inquired로 변경
-    }));
-
-    // 입력 설정 저장
-    const { error } = await supabase.from("input_settings").insert(inputSettings);
-
-    if (error) throw error;
-
-    return { success: true };
-  } catch (error) {
-    console.error(
-      "Error creating default input settings:",
-      error instanceof Error ? error.message : String(error)
-    );
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
-};
+}

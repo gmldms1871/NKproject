@@ -1,279 +1,247 @@
-import { supabase } from "./supabase"
-import type { ReportStatistics, MonthlyTrend } from "@/types"
+import { supabase } from "@/lib/supabase"
+import { getCurrentUser } from "@/lib/supabase"
+import type { ReportStatistics } from "../../types"
 
 // 보고서 통계 가져오기
 export const getReportStatistics = async (
-  groupId: string,
-  period: "day" | "week" | "month" | "year" = "week",
-): Promise<{ success: boolean; statistics?: ReportStatistics; error?: string }> => {
+  options: { timeRange?: string } = {},
+): Promise<{ success: boolean; statistics: ReportStatistics; error?: string }> => {
   try {
-    // 기간에 따른 시작일 계산
-    const now = new Date()
-    const startDate = new Date()
-
-    switch (period) {
-      case "day":
-        startDate.setDate(now.getDate() - 1)
-        break
-      case "week":
-        startDate.setDate(now.getDate() - 7)
-        break
-      case "month":
-        startDate.setMonth(now.getMonth() - 1)
-        break
-      case "year":
-        startDate.setFullYear(now.getFullYear() - 1)
-        break
-    }
-
-    // 보고서 데이터 가져오기
-    const { data: reports, error: reportsError } = await supabase
-      .from("reports")
-      .select(`
-        id,
-        created_at,
-        auther_id,
-        content,
-        summary,
-        users:auther_id(id, name)
-      `)
-      .eq("group_id", groupId)
-      .gte("created_at", startDate.toISOString())
-      .order("created_at", { ascending: true })
-
-    if (reportsError) throw reportsError
-
-    // 입력 데이터 가져오기
-    const { data: inputData, error: inputError } = await supabase
-      .from("undefined_inputs")
-      .select(`
-        id,
-        field_id,
-        value,
-        report_id
-      `)
-      .eq("group_id", groupId)
-      .not("report_id", "is", null)
-
-    if (inputError) throw inputError
-
-    // 입력 설정 가져오기
-    const { data: inputSettings, error: settingsError } = await supabase
-      .from("input_settings")
-      .select("id, field_name, field_type")
-      .eq("group_id", groupId)
-
-    if (settingsError) throw settingsError
-
-    // 통계 계산
-    const totalReports = reports.length
-
-    // 상태별 통계
-    const statusCounts: Record<string, number> = {
-      완료: 0,
-      진행중: 0,
-      미완료: 0,
-      연장: 0,
-      없음: 0,
-    }
-
-    // 필드별 통계
-    const fieldStats: Record<string, Record<string, number>> = {}
-
-    // 교사별 통계
-    const teacherStats: Record<
-      string,
-      {
-        total: number
-        completed: number
-        inProgress: number
-        incomplete: number
-      }
-    > = {}
-
-    // 날짜별 통계
-    const dateStats: Record<string, number> = {}
-
-    // 통계 데이터 처리
-    reports.forEach((report) => {
-      // 교사 통계
-      const users = report.users as { id: string; name: string } | null
-      const teacherId = users?.id
-      const teacherName = users?.name || "알 수 없음"
-
-      if (!teacherStats[teacherName]) {
-        teacherStats[teacherName] = {
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return {
+        success: false,
+        statistics: {
           total: 0,
-          completed: 0,
-          inProgress: 0,
-          incomplete: 0,
-        }
+          byUser: [],
+          monthlyTrend: [],
+        },
+        error: "인증되지 않은 사용자입니다.",
       }
-      teacherStats[teacherName].total++
-
-      // 날짜 통계 (YYYY-MM-DD 형식)
-      const reportDate = new Date(report.created_at).toISOString().split("T")[0]
-      dateStats[reportDate] = (dateStats[reportDate] || 0) + 1
-
-      // 해당 보고서의 입력 데이터 찾기
-      const reportInputs = inputData.filter((input) => input.report_id === report.id)
-
-      // 입력 데이터 처리
-      reportInputs.forEach((input) => {
-        // 입력 설정 찾기
-        const setting = inputSettings.find((s) => s.id === input.field_id)
-        if (!setting) return
-
-        // 상태 필드인 경우
-        if (setting.field_type === "select" || setting.field_name.includes("상태")) {
-          if (statusCounts.hasOwnProperty(input.value)) {
-            statusCounts[input.value]++
-          }
-
-          // 교사별 상태 통계
-          if (teacherId) {
-            if (input.value === "완료") teacherStats[teacherName].completed++
-            else if (input.value === "진행중") teacherStats[teacherName].inProgress++
-            else if (input.value === "미완료") teacherStats[teacherName].incomplete++
-          }
-        }
-
-        // 필드별 통계
-        if (!fieldStats[setting.field_name]) {
-          fieldStats[setting.field_name] = {}
-        }
-
-        fieldStats[setting.field_name][input.value] = (fieldStats[setting.field_name][input.value] || 0) + 1
-      })
-    })
-
-    return {
-      success: true,
-      statistics: {
-        totalReports,
-        statusCounts,
-        fieldStats,
-        teacherStats,
-        dateStats,
-      },
     }
-  } catch (error) {
-    console.error("Error getting report statistics:", error instanceof Error ? error.message : String(error))
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
 
-// 월별 추이 통계
-export const getMonthlyTrends = async (
-  groupId: string,
-  months = 6,
-): Promise<{ success: boolean; trends?: MonthlyTrend[]; error?: string }> => {
-  try {
-    // 시작 월 계산
+    // 사용자가 속한 그룹 ID 목록 가져오기
+    const { data: memberships, error: membershipError } = await supabase
+      .from("group_members")
+      .select("group_id")
+      .eq("user_id", currentUser.id)
+
+    if (membershipError) {
+      console.error("그룹 멤버십 가져오기 오류:", membershipError.message || String(membershipError))
+      return {
+        success: false,
+        statistics: {
+          total: 0,
+          byUser: [],
+          monthlyTrend: [],
+        },
+        error: `그룹 멤버십 가져오기 오류: ${membershipError.message || "알 수 없는 오류"}`,
+      }
+    }
+
+    const groupIds = (memberships?.map((m) => m.group_id).filter(Boolean) as string[]) || []
+
+    if (groupIds.length === 0) {
+      return {
+        success: true,
+        statistics: {
+          total: 0,
+          byUser: [],
+          monthlyTrend: [],
+        },
+      }
+    }
+
+    // 시간 범위에 따른 필터 설정
+    let fromDate: Date | null = null
     const now = new Date()
-    const startDate = new Date()
-    startDate.setMonth(now.getMonth() - months + 1)
-    startDate.setDate(1)
-    startDate.setHours(0, 0, 0, 0)
 
-    // 보고서 데이터 가져오기
-    const { data: reports, error: reportsError } = await supabase
-      .from("reports")
-      .select(`
-        id,
-        created_at
-      `)
-      .eq("group_id", groupId)
-      .gte("created_at", startDate.toISOString())
-      .order("created_at", { ascending: true })
+    if (options.timeRange === "month") {
+      fromDate = new Date(now)
+      fromDate.setMonth(now.getMonth() - 1)
+    } else if (options.timeRange === "quarter") {
+      fromDate = new Date(now)
+      fromDate.setMonth(now.getMonth() - 3)
+    } else if (options.timeRange === "year") {
+      fromDate = new Date(now)
+      fromDate.setFullYear(now.getFullYear() - 1)
+    }
 
-    if (reportsError) throw reportsError
+    // 총 보고서 수 가져오기
+    let countQuery = supabase.from("reports").select("*", { count: "exact", head: true }).in("group_id", groupIds)
 
-    // 입력 데이터 가져오기
-    const { data: inputData, error: inputError } = await supabase
-      .from("undefined_inputs")
-      .select(`
-        id,
-        field_id,
-        value,
-        report_id
-      `)
-      .eq("group_id", groupId)
-      .not("report_id", "is", null)
+    if (fromDate) {
+      countQuery = countQuery.gte("created_at", fromDate.toISOString())
+    }
 
-    if (inputError) throw inputError
+    const { count: totalReports, error: countError } = await countQuery
 
-    // 월별 통계 초기화
-    const monthlyStats: Record<
-      string,
-      {
-        month: string
-        reports: number
-        completed: number
-        inProgress: number
-        incomplete: number
-      }
-    > = {}
-
-    // 모든 월에 대한 초기 데이터 설정
-    for (let i = 0; i < months; i++) {
-      const monthDate = new Date(startDate)
-      monthDate.setMonth(startDate.getMonth() + i)
-
-      const monthKey = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`
-      const monthName = monthDate.toLocaleString("ko-KR", { month: "long" })
-
-      monthlyStats[monthKey] = {
-        month: monthName,
-        reports: 0,
-        completed: 0,
-        inProgress: 0,
-        incomplete: 0,
+    if (countError) {
+      console.error("보고서 수 가져오기 오류:", countError.message || String(countError))
+      return {
+        success: false,
+        statistics: {
+          total: 0,
+          byUser: [],
+          monthlyTrend: [],
+        },
+        error: `보고서 수 가져오기 오류: ${countError.message || "알 수 없는 오류"}`,
       }
     }
 
-    // 보고서 데이터 처리
-    reports.forEach((report) => {
-      const reportDate = new Date(report.created_at)
-      const monthKey = `${reportDate.getFullYear()}-${String(reportDate.getMonth() + 1).padStart(2, "0")}`
+    // 월별 추이 가져오기
+    // 최근 6개월 데이터 또는 시간 범위에 맞는 데이터
+    const monthsToFetch = 6
+    const months: { [key: string]: { month: string; count: number } } = {}
 
-      if (monthlyStats[monthKey]) {
-        monthlyStats[monthKey].reports++
+    // 최근 6개월(또는 지정된 범위) 초기화
+    for (let i = 0; i < monthsToFetch; i++) {
+      const date = new Date()
+      date.setMonth(date.getMonth() - i)
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+      const monthLabel = `${date.getFullYear()}.${date.getMonth() + 1}`
 
-        // 해당 보고서의 입력 데이터 찾기
-        const reportInputs = inputData.filter((input) => input.report_id === report.id)
+      months[monthKey] = {
+        month: monthLabel,
+        count: 0,
+      }
+    }
 
-        // 상태 카운트
-        let hasStatusInput = false
-        reportInputs.forEach((input) => {
-          if (input.value === "완료") {
-            monthlyStats[monthKey].completed++
-            hasStatusInput = true
-          } else if (input.value === "진행중") {
-            monthlyStats[monthKey].inProgress++
-            hasStatusInput = true
-          } else if (input.value === "미완료") {
-            monthlyStats[monthKey].incomplete++
-            hasStatusInput = true
+    // 월별 데이터 쿼리
+    let monthlyQuery = supabase.from("reports").select("created_at").in("group_id", groupIds)
+
+    if (fromDate) {
+      monthlyQuery = monthlyQuery.gte("created_at", fromDate.toISOString())
+    } else {
+      // 기본적으로 최근 6개월 데이터만 가져오기
+      const sixMonthsAgo = new Date()
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+      monthlyQuery = monthlyQuery.gte("created_at", sixMonthsAgo.toISOString())
+    }
+
+    const { data: monthlyData, error: monthlyError } = await monthlyQuery
+
+    if (monthlyError) {
+      console.error("월별 데이터 가져오기 오류:", monthlyError.message || String(monthlyError))
+      return {
+        success: false,
+        statistics: {
+          total: 0,
+          byUser: [],
+          monthlyTrend: [],
+        },
+        error: `월별 데이터 가져오기 오류: ${monthlyError.message || "알 수 없는 오류"}`,
+      }
+    }
+
+    // 월별 데이터 계산
+    if (monthlyData) {
+      monthlyData.forEach((report) => {
+        if (report.created_at) {
+          const date = new Date(report.created_at)
+          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+
+          if (months[monthKey]) {
+            months[monthKey].count++
           }
-        })
+        }
+      })
+    }
 
-        // 상태 입력이 없는 경우 기본값으로 처리
-        if (!hasStatusInput) {
-          monthlyStats[monthKey].completed++
+    // 사용자별 보고서 수 가져오기 - 데이터베이스 스키마에 맞게 수정
+    const userStats: { [key: string]: { userId: string; userName: string; count: number } } = {}
+
+    try {
+      // 각 그룹별로 쿼리 실행
+      for (const groupId of groupIds) {
+        // 실제 데이터베이스 스키마에 맞게 쿼리 수정
+        const { data: reports, error: reportsError } = await supabase
+          .from("reports")
+          .select("auther_id, created_at")
+          .eq("group_id", groupId)
+
+        if (reportsError) {
+          console.error(`그룹 ${groupId}의 보고서 가져오기 오류:`, reportsError.message || String(reportsError))
+          continue // 오류가 있어도 다음 그룹으로 계속 진행
+        }
+
+        // 각 보고서의 사용자 정보 가져오기
+        if (reports) {
+          for (const report of reports) {
+            if (!report.auther_id) continue
+
+            // 이미 처리한 사용자인지 확인
+            if (!userStats[report.auther_id]) {
+              // 사용자 정보 가져오기
+              const { data: userData, error: userError } = await supabase
+                .from("users")
+                .select("name")
+                .eq("id", report.auther_id)
+                .single()
+
+              if (userError) {
+                console.error(`사용자 ${report.auther_id} 정보 가져오기 오류:`, userError.message || String(userError))
+                userStats[report.auther_id] = {
+                  userId: report.auther_id,
+                  userName: "사용자",
+                  count: 0,
+                }
+              } else if (userData) {
+                userStats[report.auther_id] = {
+                  userId: report.auther_id,
+                  userName: userData.name || "사용자",
+                  count: 0,
+                }
+              } else {
+                userStats[report.auther_id] = {
+                  userId: report.auther_id,
+                  userName: "사용자",
+                  count: 0,
+                }
+              }
+            }
+
+            // 시간 필터 적용
+            if (fromDate && report.created_at && new Date(report.created_at) < fromDate) {
+              continue
+            }
+
+            // 카운트 증가
+            userStats[report.auther_id].count++
+          }
         }
       }
-    })
-
-    // 배열로 변환
-    const trends = Object.values(monthlyStats)
-
-    return {
-      success: true,
-      trends,
+    } catch (error) {
+      console.error("사용자별 보고서 처리 중 오류:", error instanceof Error ? error.message : String(error))
+      // 오류가 있어도 계속 진행, 일부 데이터라도 보여주기 위함
     }
+
+    // 결과 형식화
+    const statistics: ReportStatistics = {
+      total: totalReports || 0,
+      byUser: Object.values(userStats).sort((a, b) => b.count - a.count),
+      monthlyTrend: Object.values(months)
+        .sort((a, b) => {
+          const [aYear, aMonth] = a.month.split(".")
+          const [bYear, bMonth] = b.month.split(".")
+          return Number.parseInt(bYear) - Number.parseInt(aYear) || Number.parseInt(bMonth) - Number.parseInt(aMonth)
+        })
+        .reverse(),
+    }
+
+    return { success: true, statistics }
   } catch (error) {
-    console.error("Error getting monthly trends:", error instanceof Error ? error.message : String(error))
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    console.error("보고서 통계 가져오기 오류:", errorMessage)
+    return {
+      success: false,
+      statistics: {
+        total: 0,
+        byUser: [],
+        monthlyTrend: [],
+      },
+      error: `보고서 통계 가져오기 오류: ${errorMessage}`,
+    }
   }
 }

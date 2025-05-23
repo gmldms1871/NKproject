@@ -1,66 +1,139 @@
-import { supabase } from "./supabase"
-import type { InputSetting } from "@/types"
+import { supabase } from "@/lib/supabase"
+import { getCurrentUser } from "@/lib/supabase"
+import type { ExtendedInputSetting, InputSettingInsert } from "../../types"
 
-interface InputSettingCreate {
-  field_name: string
-  field_type: string
-  is_required: boolean
-}
+// 그룹의 입력 설정 가져오기
+export const getInputSettings = async (
+  groupId: string,
+): Promise<{ success: boolean; settings?: ExtendedInputSetting[]; error?: string }> => {
+  try {
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
 
-interface InputSettingUpdate {
-  field_name?: string
-  field_type?: string
-  is_required?: boolean
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
+      .from("group_members")
+      .select("role")
+      .eq("group_id", groupId)
+      .eq("user_id", currentUser.id)
+      .single()
+
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
+
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", groupId)
+      .single()
+
+    if (groupError) {
+      throw groupError
+    }
+
+    // 소유자나 멤버가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    if (!isOwner && !membership) {
+      return { success: false, error: "이 그룹에 접근할 권한이 없습니다." }
+    }
+
+    // 입력 설정 가져오기
+    const { data, error } = await supabase
+      .from("input_settings")
+      .select("*")
+      .eq("group_id", groupId)
+      .order("created_at", { ascending: true })
+
+    if (error) {
+      throw error
+    }
+
+    // 타입 안전하게 변환 (options 필드는 프론트엔드에서만 사용)
+    const settings: ExtendedInputSetting[] = (data || []).map((setting) => ({
+      ...setting,
+      field_type: setting.field_type || "text",
+      options: [], // 빈 배열로 초기화 (DB에는 없는 필드)
+    }))
+
+    return {
+      success: true,
+      settings,
+    }
+  } catch (error) {
+    console.error("입력 설정 가져오기 오류:", error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
 }
 
 // 입력 설정 생성
 export const createInputSettings = async (
   groupId: string,
-  settings: InputSettingCreate[],
+  settings: {
+    field_name: string
+    field_type: string
+    is_required?: boolean
+    options?: string[] // 프론트엔드에서만 사용하는 필드
+  }[],
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    // 설정 데이터 준비
-    const inputSettings = settings.map((setting) => ({
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
+
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", groupId)
+      .single()
+
+    if (groupError) {
+      throw groupError
+    }
+
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
+      .from("group_members")
+      .select("role")
+      .eq("group_id", groupId)
+      .eq("user_id", currentUser.id)
+      .single()
+
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
+
+    // 소유자나 관리자가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    const isManager = membership?.role === "manager"
+    if (!isOwner && !isManager) {
+      return { success: false, error: "입력 설정을 생성할 권한이 없습니다." }
+    }
+
+    // 입력 설정 생성 (options 필드는 제외)
+    const inputSettings: InputSettingInsert[] = settings.map((setting) => ({
       group_id: groupId,
       field_name: setting.field_name,
       field_type: setting.field_type,
-      is_inquired: setting.is_required, // is_required를 is_inquired로 변경
+      is_inquired: false, // 기본값 설정
     }))
 
-    // 입력 설정 저장
     const { error } = await supabase.from("input_settings").insert(inputSettings)
 
-    if (error) throw error
+    if (error) {
+      throw error
+    }
 
     return { success: true }
   } catch (error) {
-    console.error("Error creating input settings:", error instanceof Error ? error.message : String(error))
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-// 입력 설정 가져오기
-export const getInputSettings = async (
-  groupId: string,
-): Promise<{ success: boolean; settings?: InputSetting[]; error?: string }> => {
-  try {
-    const { data, error } = await supabase
-      .from("input_settings")
-      .select("*")
-      .eq("group_id", groupId)
-      .order("field_name", { ascending: true })
-
-    if (error) throw error
-
-    // 데이터 변환: is_inquired를 is_required로 변환하여 반환
-    const transformedData = data?.map((item) => ({
-      ...item,
-      is_required: item.is_inquired,
-    }))
-
-    return { success: true, settings: transformedData as InputSetting[] }
-  } catch (error) {
-    console.error("Error getting input settings:", error instanceof Error ? error.message : String(error))
+    console.error("입력 설정 생성 오류:", error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
@@ -68,23 +141,75 @@ export const getInputSettings = async (
 // 입력 설정 업데이트
 export const updateInputSetting = async (
   settingId: string,
-  updates: InputSettingUpdate,
+  updates: {
+    field_name?: string
+    field_type?: string
+    is_inquired?: boolean
+    options?: string[] // 프론트엔드에서만 사용하는 필드
+  },
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    // is_required를 is_inquired로 변환
-    const dbUpdates: Record<string, unknown> = { ...updates }
-    if (updates.is_required !== undefined) {
-      dbUpdates.is_inquired = updates.is_required
-      delete dbUpdates.is_required
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
     }
 
+    // 입력 설정 정보 가져오기
+    const { data: setting, error: settingError } = await supabase
+      .from("input_settings")
+      .select("group_id")
+      .eq("id", settingId)
+      .single()
+
+    if (settingError) {
+      throw settingError
+    }
+
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", setting.group_id)
+      .single()
+
+    if (groupError) {
+      throw groupError
+    }
+
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
+      .from("group_members")
+      .select("role")
+      .eq("group_id", setting.group_id)
+      .eq("user_id", currentUser.id)
+      .single()
+
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
+
+    // 소유자나 관리자가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    const isManager = membership?.role === "manager"
+    if (!isOwner && !isManager) {
+      return { success: false, error: "입력 설정을 수정할 권한이 없습니다." }
+    }
+
+    // options 필드 제거 (DB에 없는 필드이므로 사용하지 않음)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { options: _options, ...dbUpdates } = updates
+
+    // 입력 설정 업데이트
     const { error } = await supabase.from("input_settings").update(dbUpdates).eq("id", settingId)
 
-    if (error) throw error
+    if (error) {
+      throw error
+    }
 
     return { success: true }
   } catch (error) {
-    console.error("Error updating input setting:", error instanceof Error ? error.message : String(error))
+    console.error("입력 설정 업데이트 오류:", error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
@@ -92,38 +217,63 @@ export const updateInputSetting = async (
 // 입력 설정 삭제
 export const deleteInputSetting = async (settingId: string): Promise<{ success: boolean; error?: string }> => {
   try {
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
+
+    // 입력 설정 정보 가져오기
+    const { data: setting, error: settingError } = await supabase
+      .from("input_settings")
+      .select("group_id")
+      .eq("id", settingId)
+      .single()
+
+    if (settingError) {
+      throw settingError
+    }
+
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", setting.group_id)
+      .single()
+
+    if (groupError) {
+      throw groupError
+    }
+
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
+      .from("group_members")
+      .select("role")
+      .eq("group_id", setting.group_id)
+      .eq("user_id", currentUser.id)
+      .single()
+
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
+
+    // 소유자나 관리자가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    const isManager = membership?.role === "manager"
+    if (!isOwner && !isManager) {
+      return { success: false, error: "입력 설정을 삭제할 권한이 없습니다." }
+    }
+
+    // 입력 설정 삭제
     const { error } = await supabase.from("input_settings").delete().eq("id", settingId)
 
-    if (error) throw error
+    if (error) {
+      throw error
+    }
 
     return { success: true }
   } catch (error) {
-    console.error("Error deleting input setting:", error instanceof Error ? error.message : String(error))
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-// 기본 입력 설정 생성
-export const createDefaultInputSettings = async (groupId: string): Promise<{ success: boolean; error?: string }> => {
-  try {
-    // 기본 입력 설정 정의
-    const defaultSettings: InputSettingCreate[] = [
-      // 상태 필드
-      { field_name: "숙제·테스트 관리", field_type: "select", is_required: true },
-      { field_name: "교재 점검", field_type: "select", is_required: true },
-      { field_name: "상담 진행", field_type: "select", is_required: true },
-      { field_name: "분석", field_type: "select", is_required: true },
-
-      // 추가 입력 필드
-      { field_name: "테스트 입력 상세", field_type: "text", is_required: false },
-      { field_name: "숙제 관련 상세", field_type: "text", is_required: false },
-      { field_name: "상담 내용", field_type: "text", is_required: false },
-      { field_name: "추가 업무", field_type: "text", is_required: false },
-    ]
-
-    return await createInputSettings(groupId, defaultSettings)
-  } catch (error) {
-    console.error("Error creating default input settings:", error instanceof Error ? error.message : String(error))
+    console.error("입력 설정 삭제 오류:", error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }

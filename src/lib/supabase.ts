@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/supabase";
+import type { Database } from "../../types/supabase";
 import type { User } from "@supabase/supabase-js";
 
 // 환경 변수에서 Supabase URL과 API 키를 가져옵니다
@@ -44,32 +44,64 @@ export const getUserProfile = async (userId: string) => {
   return data;
 };
 
-// 사용자의 그룹 멤버십 가져오기
-export const getUserGroups = async (userId: string): Promise<any[]> => {
-  const { data, error } = await supabase
-    .from("group_members")
-    .select(
-      `
-      id,
-      role,
-      invited_at,
-      accepted_at,
-      groups (
-        id,
-        name,
-        created_at,
-        owner_id
-      )
-    `
-    )
-    .eq("user_id", userId);
+// 사용자 프로필 업데이트
+export const updateUserProfile = async (
+  userId: string,
+  updates: { name?: string; nick_name?: string; phone?: string }
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const { error } = await supabase.from("users").update(updates).eq("id", userId);
 
-  if (error) {
-    console.error("Error getting user groups:", error.message);
+    if (error) throw error;
+
+    return { success: true };
+  } catch (error) {
+    console.error(
+      "Error updating user profile:",
+      error instanceof Error ? error.message : String(error)
+    );
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+};
+
+// 사용자의 그룹 멤버십 가져오기
+export const getUserGroups = async (): Promise<any[]> => {
+  try {
+    const currentUser = await getCurrentUser();
+    if (!currentUser) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("group_members")
+      .select(
+        `
+        id,
+        role,
+        invited_at,
+        accepted_at,
+        groups (
+          id,
+          name,
+          created_at,
+          owner_id
+        )
+      `
+      )
+      .eq("user_id", currentUser.id);
+
+    if (error) {
+      throw error;
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error(
+      "Error getting user groups:",
+      error instanceof Error ? error.message : String(error)
+    );
     return [];
   }
-
-  return data || [];
 };
 
 // 사용자 역할 가져오기
@@ -87,4 +119,28 @@ export const getUserRole = async (userId: string, groupId: string) => {
   }
 
   return data.role;
+};
+
+// 사용자의 대기 중인 초대 가져오기
+export const getPendingInvitations = async (userId: string) => {
+  const { data, error } = await supabase
+    .from("group_members")
+    .select(
+      `
+      id,
+      role,
+      invited_at,
+      groups:group_id(id, name, owner_id),
+      owner:groups!inner(owner:users!groups_owner_id_fkey(name))
+    `
+    )
+    .eq("user_id", userId)
+    .is("accepted_at", null);
+
+  if (error) {
+    console.error("Error getting pending invitations:", error.message);
+    return [];
+  }
+
+  return data || [];
 };
