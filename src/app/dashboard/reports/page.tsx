@@ -26,7 +26,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import type { Group, Report } from "@/types";
+import type { Group, Report } from "../../../../types";
 import { Calendar, FileText, Plus, Search } from "lucide-react";
 
 export default function ReportsPage() {

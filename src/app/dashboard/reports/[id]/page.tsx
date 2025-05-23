@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import type { Report } from "@/types";
+import type { Report } from "../../../../../types";
 import { ArrowLeft, Calendar, FileEdit, Trash2, User } from "lucide-react";
 
 export default function ReportDetailsPage() {
@@ -174,7 +174,7 @@ export default function ReportDetailsPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <h1 className="text-2xl font-bold">
-            {report.title || `보고서 #${report.id.substring(0, 8)}`}
+            {report.content || `보고서 #${report.id.substring(0, 8)}`}
           </h1>
         </div>
         <div className="flex flex-wrap gap-2">

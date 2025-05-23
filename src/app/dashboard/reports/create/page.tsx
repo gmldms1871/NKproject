@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import type { Group } from "@/types";
+import type { Group } from "../../../../../types";
 import { ArrowLeft, Save } from "lucide-react";
 
 export default function CreateReportPage() {
@@ -56,7 +56,9 @@ export default function CreateReportPage() {
       try {
         const userGroups = await getUserGroups();
         if (userGroups && userGroups.length > 0) {
-          const formattedGroups = userGroups.map((membership: any) => membership.groups) as Group[];
+          const formattedGroups = userGroups
+            .map((membership: any) => membership.groups)
+            .filter((group: Group | null) => group !== null) as Group[];
           setGroups(formattedGroups);
 
           // URL에서 그룹 ID가 없고 그룹이 하나만 있으면 자동 선택
@@ -103,19 +105,17 @@ export default function CreateReportPage() {
     setIsSaving(true);
     try {
       const result = await createReport({
-        title: title.trim() || "제목 없음",
-        content,
+        title: title.trim() || undefined,
+        content: content.trim(),
         group_id: selectedGroupId,
       });
 
-      if (result.success && (result.reportId || (result.report && result.report.id))) {
+      if (result.success && result.data) {
         toast({
           title: "보고서 작성 완료",
           description: "보고서가 성공적으로 작성되었습니다.",
         });
-        // reportId 또는 report.id 사용
-        const id = result.reportId || (result.report ? result.report.id : "");
-        router.push(`/dashboard/reports/${id}`);
+        router.push(`/dashboard/reports/${result.data.id}`);
       } else {
         toast({
           title: "보고서 작성 실패",

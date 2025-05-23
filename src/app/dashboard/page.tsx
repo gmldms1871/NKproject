@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import type { Group, ReportStatistics } from "@/types";
+import type { Group, ReportStatistics } from "../../../types";
 import { BarChart, FileText, PieChart, Plus, Users } from "lucide-react";
 
 export default function DashboardPage() {

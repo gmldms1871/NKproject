@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import type { Report } from "@/types";
+import type { Report } from "../../../../../../types";
 import { ArrowLeft, Save } from "lucide-react";
 
 export default function EditReportPage() {

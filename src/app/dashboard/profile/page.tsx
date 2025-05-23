@@ -14,7 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import type { User } from "@/types";
+import type { User } from "../../../../types";
 import { Save } from "lucide-react";
 
 export default function ProfilePage() {
@@ -93,7 +93,7 @@ export default function ProfilePage() {
           variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "업데이트 실패",
         description: "예기치 않은 오류가 발생했습니다. 다시 시도해주세요.",

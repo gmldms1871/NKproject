@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import type { Group } from "@/types";
+import type { Group } from "../../../../types";
 import { Plus, Search, Users } from "lucide-react";
 
 export default function GroupsPage() {

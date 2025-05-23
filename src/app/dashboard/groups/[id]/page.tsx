@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import type { Group, GroupMember, Report } from "@/types";
+import type { Group, GroupMember, Report } from "../../../../../types";
 import {
   ArrowLeft,
   Calendar,
@@ -92,7 +92,7 @@ export default function GroupDetailsPage() {
     // 실제 구현에서는 멤버 삭제 API 호출
     toast({
       title: "기능 준비 중",
-      description: "멤버 삭제 기능은 아직 구현 중입니다.",
+      description: `멤버 삭제 기능은 아직 구현 중입니다. (id: ${memberId})`,
     });
   };
 
@@ -203,7 +203,7 @@ export default function GroupDetailsPage() {
                       </div>
                       <div className="space-y-1">
                         <p className="text-sm font-medium">
-                          {report.user_name || "사용자"}님이 새 보고서를 작성했습니다.
+                          {report.auther_id || "사용자"}님이 새 보고서를 작성했습니다.
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {new Date(report.created_at).toLocaleString()}
@@ -252,12 +252,12 @@ export default function GroupDetailsPage() {
                     <div className="flex items-center space-x-4">
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
                         <span className="text-lg font-semibold text-primary">
-                          {member.user_name ? member.user_name.charAt(0).toUpperCase() : "U"}
+                          {member.user_id ? member.user_id.charAt(0).toUpperCase() : "U"}
                         </span>
                       </div>
                       <div>
-                        <p className="font-medium">{member.user_name || "사용자"}</p>
-                        <p className="text-sm text-muted-foreground">{member.user_email}</p>
+                        <p className="font-medium">{member.user_id || "사용자"}</p>
+                        <p className="text-sm text-muted-foreground">email</p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
@@ -333,7 +333,7 @@ export default function GroupDetailsPage() {
                         </div>
                         <div>
                           <p className="font-medium">
-                            {report.title || `보고서 #${report.id.substring(0, 8)}`}
+                            {report.auther_id || `보고서 #${report.id.substring(0, 8)}`}
                           </p>
                           <div className="flex items-center text-xs text-muted-foreground">
                             <Calendar className="mr-1 h-3 w-3" />
@@ -343,7 +343,7 @@ export default function GroupDetailsPage() {
                       </div>
                       <div className="flex items-center">
                         <span className="text-sm text-muted-foreground">
-                          작성자: {report.user_name || "사용자"}
+                          작성자: {report.auther_id || "사용자"}
                         </span>
                       </div>
                     </CardContent>

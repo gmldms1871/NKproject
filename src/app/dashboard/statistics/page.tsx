@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import type { ReportStatistics } from "@/types";
+import type { ReportStatistics } from "../../../../types";
 import { ArrowLeft, BarChart, FileText, Users } from "lucide-react";
 
 export default function StatisticsPage() {
