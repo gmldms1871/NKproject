@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase"
-import { getCurrentUser } from "@/lib/supabase"
+import { supabase } from "./supabase"
+import { getCurrentUser } from "./supabase"
 import type { ReportStatistics } from "../../types"
 
 // 보고서 통계 가져오기

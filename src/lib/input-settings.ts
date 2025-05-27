@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase"
-import { getCurrentUser } from "@/lib/supabase"
+import { supabase } from "./supabase"
+import { getCurrentUser } from "./supabase"
 import type { ExtendedInputSetting, InputSettingInsert } from "../../types"
 
 // 그룹의 입력 설정 가져오기

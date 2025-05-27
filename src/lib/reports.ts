@@ -1,247 +1,443 @@
-import { createClient } from "@supabase/supabase-js"
-import type { Database } from "../../types/supabase"
-import type { User } from "@supabase/supabase-js"
+import { supabase } from "./supabase"
+import { getCurrentUser } from "./supabase"
+import type { FormattedReport, ReportUpdate } from "../../types"
 
-// 타입 별칭 정의
-type Tables<T extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][T]["Row"]
-type TablesInsert<T extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][T]["Insert"]
-type TablesUpdate<T extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][T]["Update"]
-
-// 환경 변수에서 Supabase URL과 API 키를 가져옵니다
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ""
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
-
-// Supabase 클라이언트 생성
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey)
-
-// 사용자 세션 가져오기
-export const getSession = async () => {
-  const { data, error } = await supabase.auth.getSession()
-  if (error) {
-    console.error("Error getting session:", error.message)
-    return null
-  }
-  return data.session
-}
-
-// 현재 사용자 가져오기
-export const getCurrentUser = async (): Promise<User | null> => {
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser()
-  if (error) {
-    console.error("Error getting user:", error.message)
-    return null
-  }
-  return user
-}
-
-// 사용자 프로필 가져오기
-export const getUserProfile = async (userId: string): Promise<Tables<"users"> | null> => {
-  const { data, error } = await supabase.from("users").select("*").eq("id", userId).single()
-
-  if (error) {
-    console.error("Error getting user profile:", error.message)
-    return null
-  }
-
-  return data
-}
-
-// 사용자 프로필 업데이트
-export const updateUserProfile = async (
-  userId: string,
-  updates: TablesUpdate<"users">,
-): Promise<{ success: boolean; error?: string }> => {
+// 보고서 상세 정보 가져오기
+export const getReportDetails = async (
+  reportId: string,
+): Promise<{ success: boolean; report?: FormattedReport; error?: string }> => {
   try {
-    const { error } = await supabase.from("users").update(updates).eq("id", userId)
-
-    if (error) throw error
-
-    return { success: true }
-  } catch (error) {
-    console.error("Error updating user profile:", error instanceof Error ? error.message : String(error))
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
-
-// 사용자의 그룹 멤버십 가져오기 (조인 포함)
-export const getUserGroups = async (): Promise<(Tables<"group_members"> & { groups: Tables<"groups"> | null })[]> => {
-  try {
+    // 현재 사용자 가져오기
     const currentUser = await getCurrentUser()
     if (!currentUser) {
-      return []
+      return { success: false, error: "인증되지 않은 사용자입니다." }
     }
 
-    const { data, error } = await supabase
-      .from("group_members")
-      .select(`
+    // 보고서 정보 가져오기
+    const { data: report, error } = await supabase
+      .from("reports")
+      .select(
+        `
         *,
-        groups (*)
-      `)
-      .eq("user_id", currentUser.id)
+        users:auther_id (
+          id,
+          name,
+          email
+        )
+      `,
+      )
+      .eq("id", reportId)
+      .single()
 
     if (error) {
       throw error
     }
 
-    return data || []
+    if (!report) {
+      return { success: false, error: "보고서를 찾을 수 없습니다." }
+    }
+
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
+      .from("group_members")
+      .select("role")
+      .eq("group_id", report.group_id)
+      .eq("user_id", currentUser.id)
+      .single()
+
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
+
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", report.group_id)
+      .single()
+
+    if (groupError) {
+      throw groupError
+    }
+
+    // 소유자나 멤버가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    if (!isOwner && !membership) {
+      return { success: false, error: "이 보고서에 접근할 권한이 없습니다." }
+    }
+
+    // 보고서 데이터 형식 변환
+    const formattedReport: FormattedReport = {
+      id: report.id,
+      content: report.content,
+      user_id: report.users.id,
+      user_name: report.users.name,
+      user_email: report.users.email,
+      group_id: report.group_id,
+      created_at: report.created_at,
+      summary: report.summary,
+      reviewed: report.reviewed,
+      auther_id: report.auther_id,
+      title: "보고서", // 기본값 설정
+      updated_at: report.created_at, // 기본값으로 created_at 사용
+    }
+
+    return { success: true, report: formattedReport }
   } catch (error) {
-    console.error("Error getting user groups:", error instanceof Error ? error.message : String(error))
-    return []
-  }
-}
-
-// 사용자 역할 가져오기
-export const getUserRole = async (userId: string, groupId: string): Promise<string | null> => {
-  const { data, error } = await supabase
-    .from("group_members")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("group_id", groupId)
-    .single()
-
-  if (error) {
-    console.error("Error getting user role:", error.message)
-    return null
-  }
-
-  return data.role
-}
-
-// 사용자의 대기 중인 초대 가져오기
-export const getPendingInvitations = async (userId: string) => {
-  const { data, error } = await supabase
-    .from("group_members")
-    .select(`
-      *,
-      groups (*)
-    `)
-    .eq("user_id", userId)
-    .is("accepted_at", null)
-
-  if (error) {
-    console.error("Error getting pending invitations:", error.message)
-    return []
-  }
-
-  return data || []
-}
-
-// 그룹 생성
-export const createGroup = async (
-  groupData: TablesInsert<"groups">,
-): Promise<{ success: boolean; data?: Tables<"groups">; error?: string }> => {
-  try {
-    const { data, error } = await supabase.from("groups").insert(groupData).select().single()
-
-    if (error) throw error
-
-    return { success: true, data }
-  } catch (error) {
-    console.error("Error creating group:", error instanceof Error ? error.message : String(error))
+    console.error("보고서 상세 정보 가져오기 오류:", error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
-// 그룹 멤버 초대
-export const inviteGroupMember = async (
-  memberData: TablesInsert<"group_members">,
+// 보고서 업데이트
+export const updateReport = async (
+  reportId: string,
+  updates: Partial<ReportUpdate>,
 ): Promise<{ success: boolean; error?: string }> => {
   try {
-    const { error } = await supabase.from("group_members").insert(memberData)
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
 
-    if (error) throw error
+    // 보고서 정보 가져오기
+    const { data: report, error: reportError } = await supabase
+      .from("reports")
+      .select("group_id, auther_id")
+      .eq("id", reportId)
+      .single()
+
+    if (reportError) {
+      throw reportError
+    }
+
+    // 작성자가 아니면 접근 거부
+    if (report.auther_id !== currentUser.id) {
+      // 그룹 소유자 또는 관리자인지 확인
+      const { data: group, error: groupError } = await supabase
+        .from("groups")
+        .select("owner_id")
+        .eq("id", report.group_id)
+        .single()
+
+      if (groupError) {
+        throw groupError
+      }
+
+      const { data: membership, error: membershipError } = await supabase
+        .from("group_members")
+        .select("role")
+        .eq("group_id", report.group_id)
+        .eq("user_id", currentUser.id)
+        .single()
+
+      if (membershipError && membershipError.code !== "PGRST116") {
+        throw membershipError
+      }
+
+      const isOwner = group.owner_id === currentUser.id
+      const isManager = membership?.role === "manager"
+
+      if (!isOwner && !isManager) {
+        return { success: false, error: "이 보고서를 수정할 권한이 없습니다." }
+      }
+    }
+
+    // 보고서 업데이트
+    const { error } = await supabase.from("reports").update(updates).eq("id", reportId)
+
+    if (error) {
+      throw error
+    }
 
     return { success: true }
   } catch (error) {
-    console.error("Error inviting group member:", error instanceof Error ? error.message : String(error))
+    console.error("보고서 업데이트 오류:", error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
-// 초대 수락
-export const acceptInvitation = async (membershipId: string): Promise<{ success: boolean; error?: string }> => {
+// 보고서 삭제
+export const deleteReport = async (reportId: string): Promise<{ success: boolean; error?: string }> => {
   try {
-    const { error } = await supabase
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
+
+    // 보고서 정보 가져오기
+    const { data: report, error: reportError } = await supabase
+      .from("reports")
+      .select("group_id, auther_id")
+      .eq("id", reportId)
+      .single()
+
+    if (reportError) {
+      throw reportError
+    }
+
+    // 작성자가 아니면 접근 거부
+    if (report.auther_id !== currentUser.id) {
+      // 그룹 소유자 또는 관리자인지 확인
+      const { data: group, error: groupError } = await supabase
+        .from("groups")
+        .select("owner_id")
+        .eq("id", report.group_id)
+        .single()
+
+      if (groupError) {
+        throw groupError
+      }
+
+      const { data: membership, error: membershipError } = await supabase
+        .from("group_members")
+        .select("role")
+        .eq("group_id", report.group_id)
+        .eq("user_id", currentUser.id)
+        .single()
+
+      if (membershipError && membershipError.code !== "PGRST116") {
+        throw membershipError
+      }
+
+      const isOwner = group.owner_id === currentUser.id
+      const isManager = membership?.role === "manager"
+
+      if (!isOwner && !isManager) {
+        return { success: false, error: "이 보고서를 삭제할 권한이 없습니다." }
+      }
+    }
+
+    // 보고서 삭제
+    const { error } = await supabase.from("reports").delete().eq("id", reportId)
+
+    if (error) {
+      throw error
+    }
+
+    return { success: true }
+  } catch (error) {
+    console.error("보고서 삭제 오류:", error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+// 보고서 요약 생성
+export const summarizeReport = async (
+  reportId: string,
+): Promise<{ success: boolean; summary?: string; error?: string }> => {
+  try {
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
+
+    // 보고서 정보 가져오기
+    const { data: report, error: reportError } = await supabase
+      .from("reports")
+      .select("content, group_id")
+      .eq("id", reportId)
+      .single()
+
+    if (reportError) {
+      throw reportError
+    }
+
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
       .from("group_members")
-      .update({ accepted_at: new Date().toISOString() })
-      .eq("id", membershipId)
+      .select("role")
+      .eq("group_id", report.group_id)
+      .eq("user_id", currentUser.id)
+      .single()
 
-    if (error) throw error
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
 
-    return { success: true }
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", report.group_id)
+      .single()
+
+    if (groupError) {
+      throw groupError
+    }
+
+    // 소유자나 멤버가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    if (!isOwner && !membership) {
+      return { success: false, error: "이 보고서에 접근할 권한이 없습니다." }
+    }
+
+    // 여기서 AI 요약 로직을 구현하거나 외부 API를 호출할 수 있습니다.
+    // 예시로 간단한 요약을 생성합니다.
+    const summary = `${report.content.substring(0, 100)}...`
+
+    // 요약 업데이트
+    const { error } = await supabase.from("reports").update({ summary, reviewed: true }).eq("id", reportId)
+
+    if (error) {
+      throw error
+    }
+
+    return { success: true, summary }
   } catch (error) {
-    console.error("Error accepting invitation:", error instanceof Error ? error.message : String(error))
+    console.error("보고서 요약 생성 오류:", error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
-// 리포트 생성
-export const createReport = async (
-  reportData: TablesInsert<"reports">,
-): Promise<{ success: boolean; data?: Tables<"reports">; error?: string }> => {
+// 그룹의 보고서 목록 가져오기
+export const getReportsByGroup = async (
+  groupId: string,
+): Promise<{ success: boolean; reports?: FormattedReport[]; error?: string }> => {
   try {
-    const { data, error } = await supabase.from("reports").insert(reportData).select().single()
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
 
-    if (error) throw error
+    // 그룹 멤버십 확인
+    const { data: membership, error: membershipError } = await supabase
+      .from("group_members")
+      .select("role")
+      .eq("group_id", groupId)
+      .eq("user_id", currentUser.id)
+      .single()
 
-    return { success: true, data }
-  } catch (error) {
-    console.error("Error creating report:", error instanceof Error ? error.message : String(error))
-    return { success: false, error: error instanceof Error ? error.message : String(error) }
-  }
-}
+    if (membershipError && membershipError.code !== "PGRST116") {
+      throw membershipError
+    }
 
-// 그룹의 리포트 가져오기
-export const getGroupReports = async (groupId: string): Promise<Tables<"reports">[]> => {
-  try {
+    // 그룹 정보 가져오기
+    const { data: group, error: groupError } = await supabase
+      .from("groups")
+      .select("owner_id")
+      .eq("id", groupId)
+      .single()
+
+    if (groupError) {
+      throw groupError
+    }
+
+    // 소유자나 멤버가 아니면 접근 거부
+    const isOwner = group.owner_id === currentUser.id
+    if (!isOwner && !membership) {
+      return { success: false, error: "이 그룹에 접근할 권한이 없습니다." }
+    }
+
+    // 그룹 보고서 가져오기
     const { data, error } = await supabase
       .from("reports")
-      .select("*")
+      .select(
+        `
+        id,
+        content,
+        created_at,
+        summary,
+        reviewed,
+        users:auther_id (
+          id,
+          name,
+          email
+        )
+      `,
+      )
       .eq("group_id", groupId)
       .order("created_at", { ascending: false })
 
-    if (error) throw error
+    if (error) {
+      throw error
+    }
 
-    return data || []
+    // 보고서 데이터 형식 변환
+    const reports = data || []
+    const formattedReports: FormattedReport[] = reports.map((report: any) => ({
+      id: report.id,
+      content: report.content,
+      user_id: report.users.id,
+      user_name: report.users.name,
+      user_email: report.users.email,
+      group_id: groupId,
+      created_at: report.created_at,
+      summary: report.summary,
+      reviewed: report.reviewed,
+      auther_id: report.users.id,
+      title: "보고서", // 기본값 설정
+      updated_at: report.created_at, // 기본값으로 created_at 사용
+    }))
+
+    return { success: true, reports: formattedReports }
   } catch (error) {
-    console.error("Error getting group reports:", error instanceof Error ? error.message : String(error))
-    return []
-  }
-}
-
-// 태스크 생성
-export const createTask = async (
-  taskData: TablesInsert<"tasks">,
-): Promise<{ success: boolean; data?: Tables<"tasks">; error?: string }> => {
-  try {
-    const { data, error } = await supabase.from("tasks").insert(taskData).select().single()
-
-    if (error) throw error
-
-    return { success: true, data }
-  } catch (error) {
-    console.error("Error creating task:", error instanceof Error ? error.message : String(error))
+    console.error("그룹 보고서 가져오기 오류:", error)
     return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
-// 그룹의 태스크 가져오기
-export const getGroupTasks = async (groupId: string): Promise<Tables<"tasks">[]> => {
+// 사용자의 보고서 목록 가져오기
+export const getReportsByUser = async (): Promise<{
+  success: boolean
+  reports?: FormattedReport[]
+  error?: string
+}> => {
   try {
+    // 현재 사용자 가져오기
+    const currentUser = await getCurrentUser()
+    if (!currentUser) {
+      return { success: false, error: "인증되지 않은 사용자입니다." }
+    }
+
+    // 사용자 보고서 가져오기
     const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("group_id", groupId)
+      .from("reports")
+      .select(
+        `
+        id,
+        content,
+        created_at,
+        group_id,
+        summary,
+        reviewed,
+        groups:group_id (
+          id,
+          name
+        )
+      `,
+      )
+      .eq("auther_id", currentUser.id)
       .order("created_at", { ascending: false })
 
-    if (error) throw error
+    if (error) {
+      throw error
+    }
 
-    return data || []
+    // 보고서 데이터 형식 변환
+    const reports = data || []
+    const formattedReports: FormattedReport[] = reports.map((report: any) => ({
+      id: report.id,
+      content: report.content,
+      user_id: currentUser.id,
+      user_name: currentUser.user_metadata?.name || null,
+      user_email: currentUser.email || null,
+      group_id: report.group_id,
+      created_at: report.created_at,
+      summary: report.summary,
+      reviewed: report.reviewed,
+      auther_id: currentUser.id,
+      title: "보고서", // 기본값 설정
+      updated_at: report.created_at, // 기본값으로 created_at 사용
+    }))
+
+    return { success: true, reports: formattedReports }
   } catch (error) {
-    console.error("Error getting group tasks:", error instanceof Error ? error.message : String(error))
-    return []
+    console.error("사용자 보고서 가져오기 오류:", error)
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
   }
 }

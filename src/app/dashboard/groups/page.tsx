@@ -14,13 +14,19 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
-import type { Group } from "../../../../types";
 import { Plus, Search, Users } from "lucide-react";
+
+interface GroupWithDetails {
+  id: string;
+  name: string;
+  created_at: string;
+  owner_id: string;
+}
 
 export default function GroupsPage() {
   const { toast } = useToast();
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [filteredGroups, setFilteredGroups] = useState<Group[]>([]);
+  const [groups, setGroups] = useState<GroupWithDetails[]>([]);
+  const [filteredGroups, setFilteredGroups] = useState<GroupWithDetails[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -29,7 +35,9 @@ export default function GroupsPage() {
       try {
         const userGroups = await getUserGroups();
         if (userGroups && userGroups.length > 0) {
-          const formattedGroups = userGroups.map((membership: any) => membership.groups) as Group[];
+          const formattedGroups = userGroups
+            .filter((membership) => membership.groups)
+            .map((membership) => membership.groups) as GroupWithDetails[];
           setGroups(formattedGroups);
           setFilteredGroups(formattedGroups);
         }

@@ -4,8 +4,6 @@ import type React from "react";
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createReport } from "@/lib/reports";
-import { getUserGroups } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,19 +15,15 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import type { Group } from "../../../../../types";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
+import { getInputSettings } from "../../../../lib/input-settings";
+import { supabase } from "../../../../lib/supabase";
+import { getCurrentUser } from "../../../../lib/supabase";
+import { summarizeWithGemini } from "../../../../lib/gemini";
+import type { ExtendedInputSetting } from "../../../../../types";
 
 export default function CreateReportPage() {
   const router = useRouter();
@@ -37,57 +31,98 @@ export default function CreateReportPage() {
   const { toast } = useToast();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [selectedGroupId, setSelectedGroupId] = useState<string>("");
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [groupId, setGroupId] = useState<string>("");
+  const [inputSettings, setInputSettings] = useState<ExtendedInputSetting[]>([]);
+  const [customFields, setCustomFields] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
 
-  // URL에서 그룹 ID 가져오기
   useEffect(() => {
-    const groupId = searchParams.get("groupId");
-    if (groupId) {
-      setSelectedGroupId(groupId);
+    const gid = searchParams.get("groupId");
+    if (gid) {
+      setGroupId(gid);
+      fetchInputSettings(gid);
+    } else {
+      setLoading(false);
     }
   }, [searchParams]);
 
-  // 사용자의 그룹 목록 가져오기
-  useEffect(() => {
-    const fetchGroups = async () => {
-      try {
-        const userGroups = await getUserGroups();
-        if (userGroups && userGroups.length > 0) {
-          const formattedGroups = userGroups
-            .map((membership: any) => membership.groups)
-            .filter((group: Group | null) => group !== null) as Group[];
-          setGroups(formattedGroups);
+  const fetchInputSettings = async (gid: string) => {
+    try {
+      const result = await getInputSettings(gid);
+      if (result.success && result.settings) {
+        setInputSettings(result.settings);
+      }
+    } catch (error) {
+      console.error("입력 설정 가져오기 오류:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-          // URL에서 그룹 ID가 없고 그룹이 하나만 있으면 자동 선택
-          if (!selectedGroupId && formattedGroups.length === 1) {
-            setSelectedGroupId(formattedGroups[0].id);
-          }
+  // 보고서 생성 함수
+  const createReport = async (data: {
+    title: string;
+    content: string;
+    groupId: string;
+    customFields?: Record<string, string>;
+  }) => {
+    try {
+      const currentUser = await getCurrentUser();
+      if (!currentUser) {
+        return { success: false, error: "인증되지 않은 사용자입니다." };
+      }
+
+      // 보고서 내용 요약 생성
+      let summary = null;
+      try {
+        if (data.content.length > 100) {
+          summary = await summarizeWithGemini(data.content);
         }
       } catch (error) {
-        console.error("그룹 가져오기 오류:", error);
-        toast({
-          title: "오류",
-          description: "그룹 목록을 불러오는데 실패했습니다.",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
+        console.error("요약 생성 오류:", error);
+        // 요약 생성 실패해도 계속 진행
       }
-    };
 
-    fetchGroups();
-  }, [selectedGroupId, toast]);
+      // 보고서 생성
+      const { data: report, error } = await supabase
+        .from("reports")
+        .insert({
+          title: data.title,
+          content: data.content,
+          group_id: data.groupId,
+          auther_id: currentUser.id,
+          summary,
+          custom_fields: data.customFields ? JSON.stringify(data.customFields) : null,
+        })
+        .select()
+        .single();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+      if (error) {
+        throw error;
+      }
+
+      return { success: true, reportId: report.id };
+    } catch (error) {
+      console.error("보고서 생성 오류:", error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  };
+
+  const handleCustomFieldChange = (fieldId: string, value: string) => {
+    setCustomFields((prev) => ({
+      ...prev,
+      [fieldId]: value,
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    if (!selectedGroupId) {
+    if (!title.trim()) {
       toast({
-        title: "그룹 선택 필요",
-        description: "보고서를 작성할 그룹을 선택해주세요.",
+        title: "제목 필요",
+        description: "보고서 제목을 입력해주세요.",
         variant: "destructive",
       });
       return;
@@ -102,20 +137,45 @@ export default function CreateReportPage() {
       return;
     }
 
-    setIsSaving(true);
+    if (!groupId) {
+      toast({
+        title: "그룹 필요",
+        description: "보고서를 작성할 그룹을 선택해주세요.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // 필수 필드 검증
+    const requiredFields = inputSettings.filter(
+      (setting) => setting.is_required || setting.is_inquired
+    );
+    for (const field of requiredFields) {
+      if (!customFields[field.id] || !customFields[field.id].trim()) {
+        toast({
+          title: "필수 필드 누락",
+          description: `${field.field_name} 필드는 필수입니다.`,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    setIsSubmitting(true);
     try {
       const result = await createReport({
-        title: title.trim() || undefined,
-        content: content.trim(),
-        group_id: selectedGroupId,
+        title,
+        content,
+        groupId,
+        customFields,
       });
 
-      if (result.success && result.data) {
+      if (result.success) {
         toast({
           title: "보고서 작성 완료",
           description: "보고서가 성공적으로 작성되었습니다.",
         });
-        router.push(`/dashboard/reports/${result.data.id}`);
+        router.push(`/dashboard/groups/${groupId}`);
       } else {
         toast({
           title: "보고서 작성 실패",
@@ -124,14 +184,14 @@ export default function CreateReportPage() {
         });
       }
     } catch (error) {
-      console.error("보고서 작성 오류:", error);
+      console.error("보고서 제출 중 오류:", error);
       toast({
-        title: "오류",
-        description: "예기치 않은 오류가 발생했습니다.",
+        title: "보고서 작성 실패",
+        description: "예기치 않은 오류가 발생했습니다. 다시 시도해주세요.",
         variant: "destructive",
       });
     } finally {
-      setIsSaving(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -144,10 +204,12 @@ export default function CreateReportPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex items-center space-x-2">
-        <Button variant="outline" size="icon" onClick={() => router.back()}>
-          <ArrowLeft className="h-4 w-4" />
+        <Button variant="outline" size="icon" asChild>
+          <Link href={groupId ? `/dashboard/groups/${groupId}` : "/dashboard/groups"}>
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
         </Button>
         <h1 className="text-3xl font-bold">보고서 작성</h1>
       </div>
@@ -155,61 +217,57 @@ export default function CreateReportPage() {
       <form onSubmit={handleSubmit}>
         <Card>
           <CardHeader>
-            <CardTitle>새 보고서</CardTitle>
-            <CardDescription>보고서 내용을 작성하세요.</CardDescription>
+            <CardTitle>보고서 정보</CardTitle>
+            <CardDescription>보고서의 기본 정보를 입력해주세요.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="group">그룹 선택</Label>
-              <Select value={selectedGroupId} onValueChange={setSelectedGroupId} required>
-                <SelectTrigger id="group">
-                  <SelectValue placeholder="그룹 선택" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>내 그룹</SelectLabel>
-                    {groups.map((group) => (
-                      <SelectItem key={group.id} value={group.id}>
-                        {group.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="title">제목 (선택사항)</Label>
+              <Label htmlFor="title">제목</Label>
               <Input
                 id="title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="보고서 제목"
+                required
               />
             </div>
+
             <div className="space-y-2">
               <Label htmlFor="content">내용</Label>
               <Textarea
                 id="content"
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                placeholder="보고서 내용을 입력하세요..."
-                className="min-h-[300px]"
+                placeholder="보고서 내용을 작성해주세요."
+                className="min-h-[200px]"
                 required
               />
             </div>
+
+            {inputSettings.length > 0 && (
+              <div className="space-y-4 rounded-md border p-4">
+                <h3 className="font-medium">추가 정보</h3>
+                {inputSettings.map((setting) => (
+                  <div key={setting.id} className="space-y-2">
+                    <Label htmlFor={`field-${setting.id}`}>
+                      {setting.field_name}
+                      {setting.is_required && <span className="ml-1 text-red-500">*</span>}
+                    </Label>
+                    <Input
+                      id={`field-${setting.id}`}
+                      value={customFields[setting.id] || ""}
+                      onChange={(e) => handleCustomFieldChange(setting.id, e.target.value)}
+                      placeholder={`${setting.field_name} 입력`}
+                      required={setting.is_required}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
-          <CardFooter className="flex justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => router.back()}
-              disabled={isSaving}
-            >
-              취소
-            </Button>
-            <Button type="submit" disabled={isSaving}>
-              <Save className="mr-2 h-4 w-4" />
-              {isSaving ? "저장 중..." : "저장"}
+          <CardFooter>
+            <Button type="submit" disabled={isSubmitting} className="w-full">
+              {isSubmitting ? "제출 중..." : "보고서 제출"}
             </Button>
           </CardFooter>
         </Card>

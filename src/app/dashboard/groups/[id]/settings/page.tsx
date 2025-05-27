@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { getGroupDetails, updateGroup } from "@/lib/groups";
+import { getGroupDetails, updateGroup } from "../../../../../lib/groups";
 import {
   getInputSettings,
   updateInputSetting,
   createInputSettings,
   deleteInputSetting,
-} from "@/lib/input-settings";
+} from "../../../../../lib/input-settings";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import type { Group, InputSetting } from "@/types";
+import type { Group, ExtendedInputSetting } from "../../../../../../types";
 import { ArrowLeft, Plus, Save, Trash } from "lucide-react";
 
 export default function GroupSettingsPage() {
@@ -39,7 +39,7 @@ export default function GroupSettingsPage() {
   const { toast } = useToast();
   const [group, setGroup] = useState<Group | null>(null);
   const [groupName, setGroupName] = useState("");
-  const [inputSettings, setInputSettings] = useState<InputSetting[]>([]);
+  const [inputSettings, setInputSettings] = useState<ExtendedInputSetting[]>([]);
   const [newFieldName, setNewFieldName] = useState("");
   const [newFieldType, setNewFieldType] = useState<"text" | "select">("text");
   const [newFieldRequired, setNewFieldRequired] = useState(false);
@@ -61,7 +61,13 @@ export default function GroupSettingsPage() {
         // 입력 설정 가져오기
         const settingsResult = await getInputSettings(params.id);
         if (settingsResult.success) {
-          setInputSettings(settingsResult.settings || []);
+          // is_inquired를 is_required로 매핑
+          const mappedSettings =
+            settingsResult.settings?.map((setting) => ({
+              ...setting,
+              is_required: setting.is_inquired,
+            })) || [];
+          setInputSettings(mappedSettings);
         }
       } catch (error) {
         console.error("그룹 데이터 가져오기 오류:", error);
@@ -100,7 +106,7 @@ export default function GroupSettingsPage() {
           variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "업데이트 실패",
         description: "예기치 않은 오류가 발생했습니다. 다시 시도해주세요.",
@@ -116,7 +122,13 @@ export default function GroupSettingsPage() {
     updates: { field_name?: string; is_required?: boolean }
   ) => {
     try {
-      const result = await updateInputSetting(settingId, updates);
+      // is_required를 is_inquired로 변환
+      const apiUpdates = {
+        field_name: updates.field_name,
+        is_inquired: updates.is_required,
+      };
+
+      const result = await updateInputSetting(settingId, apiUpdates);
 
       if (result.success) {
         // 로컬 상태 업데이트
@@ -134,7 +146,7 @@ export default function GroupSettingsPage() {
           variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "설정 업데이트 실패",
         description: "예기치 않은 오류가 발생했습니다. 다시 시도해주세요.",
@@ -165,7 +177,7 @@ export default function GroupSettingsPage() {
           variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "필드 삭제 실패",
         description: "예기치 않은 오류가 발생했습니다. 다시 시도해주세요.",
@@ -190,7 +202,7 @@ export default function GroupSettingsPage() {
         {
           field_name: newFieldName,
           field_type: newFieldType,
-          is_required: newFieldRequired,
+          is_inquired: newFieldRequired, // is_required 대신 is_inquired 사용
         },
       ]);
 
@@ -198,7 +210,13 @@ export default function GroupSettingsPage() {
         // 새로운 필드 정보 가져오기 (ID 포함)
         const settingsResult = await getInputSettings(params.id);
         if (settingsResult.success) {
-          setInputSettings(settingsResult.settings || []);
+          // is_inquired를 is_required로 매핑
+          const mappedSettings =
+            settingsResult.settings?.map((setting) => ({
+              ...setting,
+              is_required: setting.is_inquired,
+            })) || [];
+          setInputSettings(mappedSettings);
         }
 
         setNewFieldName("");
@@ -309,7 +327,7 @@ export default function GroupSettingsPage() {
                     </div>
                     <div className="flex items-center space-x-2 pt-2">
                       <Switch
-                        checked={setting.is_required}
+                        checked={setting.is_required || false}
                         onCheckedChange={(checked) =>
                           handleUpdateSetting(setting.id, { is_required: checked })
                         }

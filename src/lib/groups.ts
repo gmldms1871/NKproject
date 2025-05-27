@@ -1,5 +1,5 @@
-import { supabase } from "@/lib/supabase"
-import { getCurrentUser } from "@/lib/supabase"
+import { supabase } from "./supabase"
+import { getCurrentUser } from "./supabase"
 import type {
   Group,
   FormattedGroupMember,
@@ -215,6 +215,8 @@ export const getGroupReports = async (
       summary: report.summary,
       reviewed: report.reviewed,
       auther_id: report.users.id,
+      title: "보고서", // 기본값 설정
+      updated_at: report.created_at, // 기본값으로 created_at 사용
     }))
 
     return { success: true, reports: formattedReports }
