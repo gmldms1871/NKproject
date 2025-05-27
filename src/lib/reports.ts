@@ -7,7 +7,7 @@ export interface FormattedReport {
   user_id: string
   user_name: string | null
   user_email: string | null
-  group_id: string | null // Changed from string to string | null
+  group_id: string | null
   created_at: string
   updated_at: string
   summary: string | null
@@ -132,7 +132,6 @@ export const getReportsByGroup = async (groupId: string) => {
     return []
   }
 
-  // Update the formattedReport creation in getGroupReports to handle null group_id:
   const formattedReports: FormattedReport[] = reports.map((report) => {
     const typedReport = report as ReportWithUser
     return {
@@ -142,7 +141,7 @@ export const getReportsByGroup = async (groupId: string) => {
       user_id: typedReport.users.id,
       user_name: typedReport.users.name,
       user_email: typedReport.users.email,
-      group_id: groupId || null, // Ensure it's string | null
+      group_id: groupId || null,
       created_at: typedReport.created_at,
       updated_at: typedReport.updated_at || typedReport.created_at,
       summary: typedReport.summary,
@@ -278,10 +277,31 @@ export const summarizeReport = async (
       throw new Error("보고서를 찾을 수 없습니다.")
     }
 
-    // Gemini API를 사용한 요약 생성 (실제 구현 필요)
-    const summary = `${report.content.substring(0, 100)}...` // 임시 요약
+    // Gemini API를 사용한 학부모용 보고서 생성
+    try {
+      const { summarizeWithGemini } = await import("./gemini")
+      const formattedReport = await summarizeWithGemini(report.content)
 
-    // 요약 저장
+      if (formattedReport) {
+        // 형식화된 보고서 저장
+        const { error: updateError } = await supabase
+          .from("reports")
+          .update({ summary: formattedReport, reviewed: true })
+          .eq("id", reportId)
+
+        if (updateError) {
+          throw updateError
+        }
+
+        return { success: true, summary: formattedReport }
+      }
+    } catch (geminiError) {
+      console.warn("Gemini API 사용 실패, 기본 요약으로 대체:", geminiError)
+    }
+
+    // Fallback to simple summary if Gemini fails
+    const summary = `${report.content.substring(0, 100)}...`
+
     const { error: updateError } = await supabase.from("reports").update({ summary, reviewed: true }).eq("id", reportId)
 
     if (updateError) {
