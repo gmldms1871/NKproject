@@ -124,6 +124,8 @@ export type Database = {
           id: string
           reviewed: boolean | null
           summary: string | null
+          title: string
+          updated_at: string | null
         }
         Insert: {
           auther_id: string
@@ -133,6 +135,8 @@ export type Database = {
           id?: string
           reviewed?: boolean | null
           summary?: string | null
+          title: string
+          updated_at?: string | null
         }
         Update: {
           auther_id?: string
@@ -142,6 +146,8 @@ export type Database = {
           id?: string
           reviewed?: boolean | null
           summary?: string | null
+          title?: string
+          updated_at?: string | null
         }
         Relationships: [
           {
