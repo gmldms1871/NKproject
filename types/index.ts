@@ -46,7 +46,7 @@ export interface FormattedGroupMember {
 export interface FormattedReport {
   id: string
   content: string
-  group_id: string
+  group_id: string | null // Changed from string to string | null
   user_id: string
   user_name: string | null
   user_email: string | null
@@ -54,8 +54,8 @@ export interface FormattedReport {
   summary: string | null
   reviewed: boolean | null
   auther_id: string
-  title: string // 필수 필드로 추가
-  updated_at: string // 필수 필드로 추가
+  title: string
+  updated_at: string
 }
 
 export interface ReportStatistics {
@@ -71,11 +71,17 @@ export interface ReportStatistics {
   }>
 }
 
-// 확장된 InputSetting 타입 (options 필드 추가)
-export interface ExtendedInputSetting extends InputSetting {
-  // 실제 DB에는 없지만 프론트엔드에서 사용하는 필드
+// 확장된 InputSetting 타입
+export interface ExtendedInputSetting {
+  id: string
+  group_id: string
+  field_name: string
+  field_type: string
+  is_inquired: boolean | null
+  created_at: string
+  // Frontend-specific fields
   options?: string[]
-  is_required?: boolean // is_inquired와 함께 사용할 수 있도록 추가
+  is_required?: boolean | null // Changed from boolean | undefined to boolean | null
 }
 
 // 사용자 정의 타입

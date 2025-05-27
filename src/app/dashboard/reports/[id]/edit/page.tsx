@@ -15,14 +15,14 @@ import {
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import type { Report } from "../../../../../../types";
+import type { FormattedReport } from "../../../../../../types";
 import { ArrowLeft, Save } from "lucide-react";
 
 export default function EditReportPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { toast } = useToast();
-  const [report, setReport] = useState<Report | null>(null);
+  const [report, setReport] = useState<FormattedReport | null>(null);
   const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);

@@ -61,12 +61,7 @@ export default function CreateReportPage() {
   };
 
   // 보고서 생성 함수
-  const createReport = async (data: {
-    title: string;
-    content: string;
-    groupId: string;
-    customFields?: Record<string, string>;
-  }) => {
+  const createReport = async (data: { title: string; content: string; groupId: string }) => {
     try {
       const currentUser = await getCurrentUser();
       if (!currentUser) {
@@ -74,7 +69,7 @@ export default function CreateReportPage() {
       }
 
       // 보고서 내용 요약 생성
-      let summary = null;
+      let summary: string | null = null;
       try {
         if (data.content.length > 100) {
           summary = await summarizeWithGemini(data.content);
@@ -93,7 +88,6 @@ export default function CreateReportPage() {
           group_id: data.groupId,
           auther_id: currentUser.id,
           summary,
-          custom_fields: data.customFields ? JSON.stringify(data.customFields) : null,
         })
         .select()
         .single();
@@ -102,7 +96,7 @@ export default function CreateReportPage() {
         throw error;
       }
 
-      return { success: true, reportId: report.id };
+      return { success: true, reportId: report?.id };
     } catch (error) {
       console.error("보고서 생성 오류:", error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -148,7 +142,7 @@ export default function CreateReportPage() {
 
     // 필수 필드 검증
     const requiredFields = inputSettings.filter(
-      (setting) => setting.is_required || setting.is_inquired
+      (setting) => Boolean(setting.is_required) || Boolean(setting.is_inquired)
     );
     for (const field of requiredFields) {
       if (!customFields[field.id] || !customFields[field.id].trim()) {
@@ -167,10 +161,9 @@ export default function CreateReportPage() {
         title,
         content,
         groupId,
-        customFields,
       });
 
-      if (result.success) {
+      if (result.success && result.reportId) {
         toast({
           title: "보고서 작성 완료",
           description: "보고서가 성공적으로 작성되었습니다.",
@@ -258,7 +251,7 @@ export default function CreateReportPage() {
                       value={customFields[setting.id] || ""}
                       onChange={(e) => handleCustomFieldChange(setting.id, e.target.value)}
                       placeholder={`${setting.field_name} 입력`}
-                      required={setting.is_required}
+                      required={Boolean(setting.is_required)}
                     />
                   </div>
                 ))}

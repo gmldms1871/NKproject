@@ -9,7 +9,11 @@ if (!API_KEY) {
 }
 
 // Fallback summarize function for when API is not available
-const fallbackSummarize = (content: string): string => {
+const fallbackSummarize = (content: string): string | null => {
+  if (!content || content.trim().length === 0) {
+    return null
+  }
+
   const sentences = content.split(/[.!?]+/).filter((s) => s.trim().length > 0)
 
   // 첫 문장과 마지막 문장을 조합하여 간단한 요약 생성
@@ -29,10 +33,10 @@ const fallbackSummarize = (content: string): string => {
     summary = content.substring(0, 100) + (content.length > 100 ? "..." : "")
   }
 
-  return summary
+  return summary || null
 }
 
-export const summarizeWithGemini = async (content: string): Promise<string> => {
+export const summarizeWithGemini = async (content: string): Promise<string | null> => {
   try {
     // API 키가 없거나 내용이 너무 짧으면 기본 요약 로직 사용
     if (!API_KEY || content.length < 100) {
@@ -63,7 +67,7 @@ ${content}`
     return summary
   } catch (error) {
     console.error("Error summarizing with Gemini API:", error)
-    // 요약 실패 시 기본 요약 로직 사용
-    return fallbackSummarize(content)
+    // 요약 실패 시 null 반환
+    return null
   }
 }

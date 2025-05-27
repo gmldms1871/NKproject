@@ -125,7 +125,9 @@ export default function CreateGroupPage() {
       }
 
       // 기본 입력 설정 생성
-      await createDefaultInputSettings(result.groupId);
+      if (result.groupId) {
+        await createDefaultInputSettings(result.groupId);
+      }
 
       toast({
         title: "그룹 생성 완료",
@@ -133,7 +135,9 @@ export default function CreateGroupPage() {
       });
 
       // 생성된 그룹 페이지로 이동
-      router.push(`/dashboard/groups/${result.groupId}`);
+      if (result.groupId) {
+        router.push(`/dashboard/groups/${result.groupId}`);
+      }
     } catch (error) {
       console.error("그룹 생성 중 오류:", error);
       toast({

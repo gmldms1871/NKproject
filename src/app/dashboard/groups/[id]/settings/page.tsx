@@ -62,10 +62,10 @@ export default function GroupSettingsPage() {
         const settingsResult = await getInputSettings(params.id);
         if (settingsResult.success) {
           // is_inquired를 is_required로 매핑
-          const mappedSettings =
+          const mappedSettings: ExtendedInputSetting[] =
             settingsResult.settings?.map((setting) => ({
               ...setting,
-              is_required: setting.is_inquired,
+              is_required: setting.is_inquired, // Both are now boolean | null
             })) || [];
           setInputSettings(mappedSettings);
         }
@@ -202,7 +202,7 @@ export default function GroupSettingsPage() {
         {
           field_name: newFieldName,
           field_type: newFieldType,
-          is_inquired: newFieldRequired, // is_required 대신 is_inquired 사용
+          is_inquired: newFieldRequired,
         },
       ]);
 
@@ -211,10 +211,10 @@ export default function GroupSettingsPage() {
         const settingsResult = await getInputSettings(params.id);
         if (settingsResult.success) {
           // is_inquired를 is_required로 매핑
-          const mappedSettings =
+          const mappedSettings: ExtendedInputSetting[] =
             settingsResult.settings?.map((setting) => ({
               ...setting,
-              is_required: setting.is_inquired,
+              is_required: setting.is_inquired, // Both are now boolean | null
             })) || [];
           setInputSettings(mappedSettings);
         }
@@ -233,7 +233,7 @@ export default function GroupSettingsPage() {
           variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch {
       toast({
         title: "필드 추가 실패",
         description: "예기치 않은 오류가 발생했습니다. 다시 시도해주세요.",
