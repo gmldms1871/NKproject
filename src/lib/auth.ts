@@ -51,6 +51,9 @@ export const signUp = async (email: string, password: string, userData: UserData
 // 로그인
 export const signIn = async (email: string, password: string): Promise<SignInResult> => {
   try {
+    // 기존 세션 정리
+    await supabase.auth.signOut()
+
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,

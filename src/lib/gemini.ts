@@ -40,14 +40,15 @@ export const summarizeWithGemini = async (content: string): Promise<string | nul
   try {
     // API 키가 없거나 내용이 너무 짧으면 기본 요약 로직 사용
     if (!API_KEY || content.length < 100) {
+      console.log("Using fallback summarization due to missing API key or short content")
       return fallbackSummarize(content)
     }
 
     // Create a new instance of the GoogleGenerativeAI
     const genAI = new GoogleGenerativeAI(API_KEY)
 
-    // Gemini 모델 설정 (Gemini Pro 사용)
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" })
+    // Gemini 모델 설정 (Gemini 1.5 Flash 사용)
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
 
     // 프롬프트 구성
     const prompt = `다음 텍스트를 3-4문장으로 간결하게 요약해주세요. 핵심 내용만 포함하고 불필요한 세부 사항은 제외하세요:
@@ -67,7 +68,7 @@ ${content}`
     return summary
   } catch (error) {
     console.error("Error summarizing with Gemini API:", error)
-    // 요약 실패 시 null 반환
-    return null
+    // API 오류 시 fallback 사용
+    return fallbackSummarize(content)
   }
 }

@@ -24,6 +24,13 @@ import { supabase } from "../../../../lib/supabase";
 import { getCurrentUser } from "../../../../lib/supabase";
 import { summarizeWithGemini } from "../../../../lib/gemini";
 import type { ExtendedInputSetting } from "../../../../../types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export default function CreateReportPage() {
   const router = useRouter();
@@ -246,13 +253,38 @@ export default function CreateReportPage() {
                       {setting.field_name}
                       {setting.is_required && <span className="ml-1 text-red-500">*</span>}
                     </Label>
-                    <Input
-                      id={`field-${setting.id}`}
-                      value={customFields[setting.id] || ""}
-                      onChange={(e) => handleCustomFieldChange(setting.id, e.target.value)}
-                      placeholder={`${setting.field_name} 입력`}
-                      required={Boolean(setting.is_required)}
-                    />
+                    {setting.field_type === "select" ? (
+                      <Select
+                        value={customFields[setting.id] || ""}
+                        onValueChange={(value) => handleCustomFieldChange(setting.id, value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={`${setting.field_name} 선택`} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="option1">옵션 1</SelectItem>
+                          <SelectItem value="option2">옵션 2</SelectItem>
+                          <SelectItem value="option3">옵션 3</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : setting.field_type === "textarea" ? (
+                      <Textarea
+                        id={`field-${setting.id}`}
+                        value={customFields[setting.id] || ""}
+                        onChange={(e) => handleCustomFieldChange(setting.id, e.target.value)}
+                        placeholder={`${setting.field_name} 입력`}
+                        required={Boolean(setting.is_required)}
+                        className="min-h-[100px]"
+                      />
+                    ) : (
+                      <Input
+                        id={`field-${setting.id}`}
+                        value={customFields[setting.id] || ""}
+                        onChange={(e) => handleCustomFieldChange(setting.id, e.target.value)}
+                        placeholder={`${setting.field_name} 입력`}
+                        required={Boolean(setting.is_required)}
+                      />
+                    )}
                   </div>
                 ))}
               </div>

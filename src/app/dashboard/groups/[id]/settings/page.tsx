@@ -46,6 +46,7 @@ export default function GroupSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isAddingField, setIsAddingField] = useState(false);
+  const [updateTimeout, setUpdateTimeout] = useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     const fetchGroupData = async () => {
@@ -119,13 +120,14 @@ export default function GroupSettingsPage() {
 
   const handleUpdateSetting = async (
     settingId: string,
-    updates: { field_name?: string; is_required?: boolean }
+    updates: { field_name?: string; is_required?: boolean; field_type?: string }
   ) => {
     try {
       // is_required를 is_inquired로 변환
       const apiUpdates = {
         field_name: updates.field_name,
         is_inquired: updates.is_required,
+        field_type: updates.field_type,
       };
 
       const result = await updateInputSetting(settingId, apiUpdates);
@@ -142,7 +144,7 @@ export default function GroupSettingsPage() {
       } else {
         toast({
           title: "설정 업데이트 실패",
-          description: result.error || "입력 필드 설정 업데이트에 실패했습니다.",
+          description: result.error || "���력 필드 설정 업데이트에 실패했습니다.",
           variant: "destructive",
         });
       }
@@ -154,6 +156,68 @@ export default function GroupSettingsPage() {
       });
     }
   };
+
+  const handleUpdateSettingDebounced = (
+    settingId: string,
+    updates: { field_name?: string; is_required?: boolean }
+  ) => {
+    // 기존 타이머 클리어
+    if (updateTimeout) {
+      clearTimeout(updateTimeout);
+    }
+
+    // 로컬 상태 즉시 업데이트 (UI 반응성)
+    setInputSettings((prev) =>
+      prev.map((setting) => (setting.id === settingId ? { ...setting, ...updates } : setting))
+    );
+
+    // 1초 후 서버 업데이트
+    const newTimeout = setTimeout(async () => {
+      try {
+        const apiUpdates = {
+          field_name: updates.field_name,
+          is_inquired: updates.is_required,
+        };
+
+        const result = await updateInputSetting(settingId, apiUpdates);
+
+        if (!result.success) {
+          // 실패 시 원래 상태로 복원
+          const settingsResult = await getInputSettings(params.id);
+          if (settingsResult.success) {
+            const mappedSettings: ExtendedInputSetting[] =
+              settingsResult.settings?.map((setting) => ({
+                ...setting,
+                is_required: setting.is_inquired,
+              })) || [];
+            setInputSettings(mappedSettings);
+          }
+
+          toast({
+            title: "설정 업데이트 실패",
+            description: result.error || "입력 필드 설정 업데이트에 실패했습니다.",
+            variant: "destructive",
+          });
+        }
+      } catch {
+        toast({
+          title: "설정 업데이트 실패",
+          description: "예기치 않은 오류가 발생했습니다.",
+          variant: "destructive",
+        });
+      }
+    }, 1000);
+
+    setUpdateTimeout(newTimeout);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+    };
+  }, [updateTimeout]);
 
   const handleDeleteSetting = async (settingId: string) => {
     if (!confirm("이 입력 필드를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) {
@@ -312,24 +376,37 @@ export default function GroupSettingsPage() {
                   key={setting.id}
                   className="flex items-center justify-between space-x-2 rounded-md border p-4"
                 >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center">
+                  <div className="space-y-0.5 flex-1">
+                    <div className="flex items-center space-x-2">
                       <Input
                         value={setting.field_name}
                         onChange={(e) =>
-                          handleUpdateSetting(setting.id, { field_name: e.target.value })
+                          handleUpdateSettingDebounced(setting.id, { field_name: e.target.value })
                         }
                         className="max-w-[300px]"
                       />
-                      <span className="ml-2 rounded-full bg-muted px-2 py-1 text-xs">
-                        {setting.field_type === "text" ? "텍스트" : "선택"}
-                      </span>
+                      <Select
+                        value={setting.field_type}
+                        onValueChange={(value) => {
+                          // 필드 타입 변경은 즉시 서버에 반영
+                          handleUpdateSetting(setting.id, { field_type: value });
+                        }}
+                      >
+                        <SelectTrigger className="w-[120px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="text">텍스트</SelectItem>
+                          <SelectItem value="select">선택</SelectItem>
+                          <SelectItem value="textarea">긴 텍스트</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="flex items-center space-x-2 pt-2">
                       <Switch
                         checked={setting.is_required || false}
                         onCheckedChange={(checked) =>
-                          handleUpdateSetting(setting.id, { is_required: checked })
+                          handleUpdateSettingDebounced(setting.id, { is_required: checked })
                         }
                         id={`required-${setting.id}`}
                       />

@@ -59,7 +59,7 @@ export const createInputSettings = async (
 
 export const updateInputSetting = async (
   settingId: string,
-  updates: { field_name?: string; is_inquired?: boolean },
+  updates: { field_name?: string; field_type?: string; is_inquired?: boolean },
 ): Promise<{ success: boolean; error?: string }> => {
   try {
     const { error } = await supabase.from("input_settings").update(updates).eq("id", settingId)
