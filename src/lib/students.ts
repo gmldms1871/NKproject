@@ -24,9 +24,7 @@ export async function createStudent(
 }
 
 // 그룹별 학생 목록 조회
-export async function getStudentsByGroup(
-  groupId: string
-): Promise<{ success: boolean; students?: FormattedStudent[]; error?: string }> {
+export async function getStudentsByGroupId(groupId: string): Promise<FormattedStudent[]> {
   try {
     const { data, error } = await supabase
       .from("students")
@@ -36,7 +34,7 @@ export async function getStudentsByGroup(
 
     if (error) {
       console.error("Error fetching students:", error);
-      return { success: false, error: error.message };
+      return [];
     }
 
     const formattedStudents: FormattedStudent[] = (data || []).map((student) => ({
@@ -51,13 +49,10 @@ export async function getStudentsByGroup(
       updated_at: student.updated_at,
     }));
 
-    return { success: true, students: formattedStudents };
+    return formattedStudents;
   } catch (error) {
     console.error("Error fetching students:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.",
-    };
+    return [];
   }
 }
 

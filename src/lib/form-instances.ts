@@ -86,9 +86,7 @@ export async function getFormInstancesByStudent(
 }
 
 // 그룹별 폼 인스턴스 조회
-export async function getFormInstancesByGroup(
-  groupId: string
-): Promise<{ success: boolean; instances?: FormattedFormInstance[]; error?: string }> {
+export async function getFormInstancesByGroupId(groupId: string): Promise<FormattedFormInstance[]> {
   try {
     const { data, error } = await supabase
       .from("form_instances")
@@ -105,7 +103,7 @@ export async function getFormInstancesByGroup(
 
     if (error) {
       console.error("Error fetching form instances:", error);
-      return { success: false, error: error.message };
+      return [];
     }
 
     const formattedInstances: FormattedFormInstance[] = (data || []).map((instance) => ({
@@ -123,13 +121,10 @@ export async function getFormInstancesByGroup(
       form_responses: (instance.form_responses as FormResponse[]) || [],
     }));
 
-    return { success: true, instances: formattedInstances };
+    return formattedInstances;
   } catch (error) {
     console.error("Error fetching form instances:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.",
-    };
+    return [];
   }
 }
 

@@ -84,9 +84,9 @@ export async function getStudentReportById(
 }
 
 // 그룹별 학생 보고서 목록 조회
-export async function getStudentReportsByGroup(
+export async function getStudentReportsByGroupId(
   groupId: string
-): Promise<{ success: boolean; reports?: FormattedStudentReport[]; error?: string }> {
+): Promise<FormattedStudentReport[]> {
   try {
     const { data, error } = await supabase
       .from("student_reports")
@@ -102,7 +102,7 @@ export async function getStudentReportsByGroup(
 
     if (error) {
       console.error("Error fetching student reports:", error);
-      return { success: false, error: error.message };
+      return [];
     }
 
     const formattedReports: FormattedStudentReport[] = (data || []).map((report) => ({
@@ -121,13 +121,10 @@ export async function getStudentReportsByGroup(
       student: report.student as Student,
     }));
 
-    return { success: true, reports: formattedReports };
+    return formattedReports;
   } catch (error) {
     console.error("Error fetching student reports:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.",
-    };
+    return [];
   }
 }
 

@@ -48,9 +48,7 @@ export async function createFormTemplate(
 }
 
 // 그룹별 폼 템플릿 목록 조회
-export async function getFormTemplatesByGroup(
-  groupId: string
-): Promise<{ success: boolean; templates?: FormattedFormTemplate[]; error?: string }> {
+export async function getFormTemplatesByGroupId(groupId: string): Promise<FormattedFormTemplate[]> {
   try {
     const { data, error } = await supabase
       .from("form_templates")
@@ -67,7 +65,7 @@ export async function getFormTemplatesByGroup(
 
     if (error) {
       console.error("Error fetching form templates:", error);
-      return { success: false, error: error.message };
+      return [];
     }
 
     const formattedTemplates: FormattedFormTemplate[] = (data || []).map((template) => ({
@@ -87,13 +85,10 @@ export async function getFormTemplatesByGroup(
       question_concepts: template.question_concepts || [],
     }));
 
-    return { success: true, templates: formattedTemplates };
+    return formattedTemplates;
   } catch (error) {
     console.error("Error fetching form templates:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다.",
-    };
+    return [];
   }
 }
 
