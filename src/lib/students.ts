@@ -6,13 +6,41 @@ export async function createStudent(
   student: StudentInsert
 ): Promise<{ success: boolean; student?: Student; error?: string }> {
   try {
-    const { data, error } = await supabase.from("students").insert(student).select().single();
+    console.log("Creating student with data:", JSON.stringify(student, null, 2));
 
-    if (error) {
-      console.error("Error creating student:", error);
-      return { success: false, error: error.message };
+    // 필수 필드 검증
+    if (!student.name) {
+      return { success: false, error: "이름은 필수 항목입니다." };
     }
 
+    if (!student.group_id) {
+      return { success: false, error: "그룹 ID는 필수 항목입니다." };
+    }
+
+    // 데이터 정제
+    const cleanedStudent = {
+      name: student.name,
+      group_id: student.group_id,
+      student_number: student.student_number || null,
+      class_name: student.class_name || null,
+      phone: student.phone || null,
+      parent_phone: student.parent_phone || null,
+    };
+
+    console.log("Cleaned student data:", JSON.stringify(cleanedStudent, null, 2));
+
+    const { data, error } = await supabase
+      .from("students")
+      .insert(cleanedStudent)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Supabase error creating student:", error);
+      return { success: false, error: error.message || JSON.stringify(error) };
+    }
+
+    console.log("Student created successfully:", data);
     return { success: true, student: data };
   } catch (error) {
     console.error("Error creating student:", error);
@@ -104,18 +132,30 @@ export async function updateStudent(
   updates: StudentUpdate
 ): Promise<{ success: boolean; student?: Student; error?: string }> {
   try {
+    console.log("Updating student with ID:", studentId, "Data:", JSON.stringify(updates, null, 2));
+
+    // 데이터 정제
+    const cleanedUpdates = {
+      name: updates.name,
+      student_number: updates.student_number || null,
+      class_name: updates.class_name || null,
+      phone: updates.phone || null,
+      parent_phone: updates.parent_phone || null,
+    };
+
     const { data, error } = await supabase
       .from("students")
-      .update(updates)
+      .update(cleanedUpdates)
       .eq("id", studentId)
       .select()
       .single();
 
     if (error) {
       console.error("Error updating student:", error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || JSON.stringify(error) };
     }
 
+    console.log("Student updated successfully:", data);
     return { success: true, student: data };
   } catch (error) {
     console.error("Error updating student:", error);
@@ -131,13 +171,16 @@ export async function deleteStudent(
   studentId: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
+    console.log("Deleting student with ID:", studentId);
+
     const { error } = await supabase.from("students").delete().eq("id", studentId);
 
     if (error) {
       console.error("Error deleting student:", error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || JSON.stringify(error) };
     }
 
+    console.log("Student deleted successfully");
     return { success: true };
   } catch (error) {
     console.error("Error deleting student:", error);
@@ -226,13 +269,26 @@ export async function createStudentsBatch(
   students: StudentInsert[]
 ): Promise<{ success: boolean; students?: Student[]; error?: string }> {
   try {
-    const { data, error } = await supabase.from("students").insert(students).select();
+    console.log("Creating students batch:", JSON.stringify(students, null, 2));
+
+    // 데이터 정제
+    const cleanedStudents = students.map((student) => ({
+      name: student.name,
+      group_id: student.group_id,
+      student_number: student.student_number || null,
+      class_name: student.class_name || null,
+      phone: student.phone || null,
+      parent_phone: student.parent_phone || null,
+    }));
+
+    const { data, error } = await supabase.from("students").insert(cleanedStudents).select();
 
     if (error) {
       console.error("Error creating students batch:", error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || JSON.stringify(error) };
     }
 
+    console.log("Students batch created successfully:", data);
     return { success: true, students: data };
   } catch (error) {
     console.error("Error creating students batch:", error);

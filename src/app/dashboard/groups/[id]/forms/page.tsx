@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getFormTemplatesByGroupId, deleteFormTemplate } from "@/lib/form-templates";
@@ -27,9 +27,9 @@ import { Loader2, Plus, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { FormattedFormTemplate } from "../../../../../../types";
 
-export default function FormsPage({ params }: { params: { id: string } }) {
+export default function FormsPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const groupId = params.id;
+  const { id: groupId } = use(params);
 
   const [formTemplates, setFormTemplates] = useState<FormattedFormTemplate[]>([]);
   const [loading, setLoading] = useState(true);

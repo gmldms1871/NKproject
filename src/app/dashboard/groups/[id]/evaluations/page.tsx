@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { getFormInstancesByGroupId } from "@/lib/form-instances";
@@ -21,9 +21,9 @@ import { FileText, Loader2, Search, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { FormattedFormInstance, FormattedStudentReport } from "../../../../../../types";
 
-export default function EvaluationsPage({ params }: { params: { id: string } }) {
+export default function EvaluationsPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const groupId = params.id;
+  const { id: groupId } = use(params);
 
   const [formInstances, setFormInstances] = useState<FormattedFormInstance[]>([]);
   const [studentReports, setStudentReports] = useState<FormattedStudentReport[]>([]);

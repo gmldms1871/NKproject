@@ -2,7 +2,7 @@
 
 import type React from "react";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { getStudentsByGroupId, createStudent, updateStudent, deleteStudent } from "@/lib/students";
 import { Button } from "@/components/ui/button";
@@ -49,9 +49,9 @@ const studentFormSchema = z.object({
 
 type StudentFormValues = z.infer<typeof studentFormSchema>;
 
-export default function StudentsPage({ params }: { params: { id: string } }) {
+export default function StudentsPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const groupId = params.id;
+  const { id: groupId } = use(params);
 
   const [students, setStudents] = useState<FormattedStudent[]>([]);
   const [loading, setLoading] = useState(true);
