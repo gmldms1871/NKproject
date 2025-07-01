@@ -1,6 +1,9 @@
 import type React from "react";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { ConfigProvider } from "antd";
+import koKR from "antd/locale/ko_KR";
+import { AuthProvider } from "@/contexts/auth-context";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -17,7 +20,19 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" suppressHydrationWarning>
-      <body className={inter.className}></body>
+      <body className={inter.className}>
+        <ConfigProvider
+          locale={koKR}
+          theme={{
+            token: {
+              colorPrimary: "#1677ff",
+              borderRadius: 6,
+            },
+          }}
+        >
+          <AuthProvider>{children}</AuthProvider>
+        </ConfigProvider>
+      </body>
     </html>
   );
 }
