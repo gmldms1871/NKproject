@@ -1,6 +1,4 @@
-import Link from "next/link"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import Link from "next/link";
 
 export default function Home() {
   return (
@@ -12,14 +10,7 @@ export default function Home() {
               <span className="font-bold">Report Management System</span>
             </Link>
           </div>
-          <div className="ml-auto flex items-center space-x-4">
-            <Link href="/login">
-              <Button variant="outline">Login</Button>
-            </Link>
-            <Link href="/signup">
-              <Button>Sign Up</Button>
-            </Link>
-          </div>
+          <div className="ml-auto flex items-center space-x-4"></div>
         </div>
       </header>
       <main className="flex-1">
@@ -32,65 +23,14 @@ export default function Home() {
                     Streamline Your Reporting Process
                   </h1>
                   <p className="max-w-[600px] text-muted-foreground md:text-xl">
-                    Manage groups, create reports, and track tasks efficiently with our comprehensive reporting system.
+                    Manage groups, create reports, and track tasks efficiently with our
+                    comprehensive reporting system.
                   </p>
                 </div>
-                <div className="flex flex-col gap-2 min-[400px]:flex-row">
-                  <Link href="/signup">
-                    <Button size="lg" className="w-full">
-                      Get Started
-                    </Button>
-                  </Link>
-                  <Link href="/login">
-                    <Button size="lg" variant="outline" className="w-full">
-                      Login
-                    </Button>
-                  </Link>
-                </div>
+                <div className="flex flex-col gap-2 min-[400px]:flex-row"></div>
               </div>
               <div className="flex items-center justify-center">
-                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle>Group Management</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">
-                        Create and manage groups with different roles and permissions.
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle>Report Creation</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">
-                        Create detailed reports with customizable fields and AI-powered summaries.
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle>Task Management</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">
-                        Assign and track tasks with due dates and status updates.
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle>Analytics</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">
-                        View detailed statistics and trends to improve your workflow.
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2"></div>
               </div>
             </div>
           </div>
@@ -104,5 +44,5 @@ export default function Home() {
         </div>
       </footer>
     </div>
-  )
+  );
 }
