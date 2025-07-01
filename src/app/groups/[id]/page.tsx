@@ -1,0 +1,585 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter, useParams } from "next/navigation";
+import {
+  Card,
+  Tabs,
+  Button,
+  Table,
+  Tag,
+  Modal,
+  Form,
+  Input,
+  Select,
+  message,
+  Space,
+  Avatar,
+  Popconfirm,
+  Switch,
+} from "antd";
+import {
+  ArrowLeftOutlined,
+  UserAddOutlined,
+  SettingOutlined,
+  CrownOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  MailOutlined,
+  PhoneOutlined,
+} from "@ant-design/icons";
+import { useAuth } from "@/contexts/auth-context";
+import {
+  getGroupMembers,
+  getGroupRoles,
+  inviteToGroup,
+  updateMemberRole,
+  createGroupRole,
+  updateGroupRole,
+  deleteGroupRole,
+  updateGroup,
+  transferGroupOwnership,
+  leaveGroup,
+  deleteGroup,
+} from "@/lib/groups";
+
+export default function GroupDetailPage() {
+  const router = useRouter();
+  const params = useParams();
+  const { user } = useAuth();
+  const groupId = params.id as string;
+
+  const [members, setMembers] = useState<any[]>([]);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [group, setGroup] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [inviteModalVisible, setInviteModalVisible] = useState(false);
+  const [roleModalVisible, setRoleModalVisible] = useState(false);
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [editingRole, setEditingRole] = useState<any>(null);
+
+  const [inviteForm] = Form.useForm();
+  const [roleForm] = Form.useForm();
+  const [settingsForm] = Form.useForm();
+
+  const userRole = members.find((m) => m.users?.id === user?.id)?.group_roles;
+
+  useEffect(() => {
+    if (!user) {
+      router.push("/auth");
+      return;
+    }
+    loadGroupData();
+  }, [user, groupId]);
+
+  const loadGroupData = async () => {
+    if (!user || !groupId) return;
+
+    setLoading(true);
+    try {
+      const [membersResult, rolesResult] = await Promise.all([
+        getGroupMembers(groupId, user.id),
+        getGroupRoles(groupId, user.id),
+      ]);
+
+      if (membersResult.success) {
+        setMembers(membersResult.data || []);
+        // 그룹 정보는 멤버 정보에서 추출
+        const groupInfo = membersResult.data?.[0];
+        if (groupInfo) {
+          // 실제로는 별도 API가 필요하지만, 임시로 멤버 데이터에서 추출
+          setGroup({
+            id: groupId,
+            name: "Group Name", // 실제로는 API에서 가져와야 함
+            description: "Group Description",
+          });
+        }
+      }
+
+      if (rolesResult.success) {
+        setRoles(rolesResult.data || []);
+      }
+    } catch (error) {
+      message.error("그룹 정보를 불러오는데 실패했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInvite = async (values: any) => {
+    if (!user) return;
+
+    try {
+      const result = await inviteToGroup({
+        groupId,
+        inviteeEmail: values.identifier.includes("@") ? values.identifier : undefined,
+        inviteePhone: values.identifier.includes("@") ? undefined : values.identifier,
+        roleId: values.roleId,
+        inviterId: user.id,
+      });
+
+      if (result.success) {
+        message.success("초대가 성공적으로 전송되었습니다!");
+        setInviteModalVisible(false);
+        inviteForm.resetFields();
+      } else {
+        message.error(result.error || "초대 전송에 실패했습니다.");
+      }
+    } catch (error) {
+      message.error("초대 전송 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleCreateRole = async (values: any) => {
+    if (!user) return;
+
+    try {
+      const result = await createGroupRole(user.id, {
+        groupId,
+        name: values.name,
+        can_invite: values.can_invite || false,
+        can_manage_roles: values.can_manage_roles || false,
+        can_create_form: values.can_create_form || false,
+        can_delete_form: values.can_delete_form || false,
+      });
+
+      if (result.success) {
+        message.success("역할이 성공적으로 생성되었습니다!");
+        setRoleModalVisible(false);
+        roleForm.resetFields();
+        loadGroupData();
+      } else {
+        message.error(result.error || "역할 생성에 실패했습니다.");
+      }
+    } catch (error) {
+      message.error("역할 생성 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleUpdateRole = async (roleId: string, values: any) => {
+    if (!user) return;
+
+    try {
+      const result = await updateGroupRole(roleId, user.id, values);
+
+      if (result.success) {
+        message.success("역할이 성공적으로 수정되었습니다!");
+        setEditingRole(null);
+        loadGroupData();
+      } else {
+        message.error(result.error || "역할 수정에 실패했습니다.");
+      }
+    } catch (error) {
+      message.error("역할 수정 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleDeleteRole = async (roleId: string) => {
+    if (!user) return;
+
+    try {
+      const result = await deleteGroupRole(roleId, user.id);
+
+      if (result.success) {
+        message.success("역할이 성공적으로 삭제되었습니다!");
+        loadGroupData();
+      } else {
+        message.error(result.error || "역할 삭제에 실패했습니다.");
+      }
+    } catch (error) {
+      message.error("역할 삭제 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleChangeRole = async (memberId: string, newRoleId: string) => {
+    if (!user) return;
+
+    try {
+      const result = await updateMemberRole(groupId, { memberId, newRoleId }, user.id);
+
+      if (result.success) {
+        message.success("멤버 역할이 성공적으로 변경되었습니다!");
+        loadGroupData();
+      } else {
+        message.error(result.error || "멤버 역할 변경에 실패했습니다.");
+      }
+    } catch (error) {
+      message.error("멤버 역할 변경 중 오류가 발생했습니다.");
+    }
+  };
+
+  const membersColumns = [
+    {
+      title: "멤버",
+      dataIndex: "users",
+      key: "user",
+      render: (user: any) => (
+        <Space>
+          <Avatar icon={<UserAddOutlined />} />
+          <div>
+            <div className="font-medium">{user?.name}</div>
+            <div className="text-sm text-gray-500">@{user?.nickname}</div>
+          </div>
+        </Space>
+      ),
+    },
+    {
+      title: "역할",
+      dataIndex: "group_roles",
+      key: "role",
+      render: (role: any, record: any) => {
+        const isOwner = role?.name === "owner";
+        return (
+          <Space>
+            <Tag color={isOwner ? "gold" : "blue"}>
+              {isOwner && <CrownOutlined />} {role?.name}
+            </Tag>
+            {userRole?.can_manage_roles && !isOwner && (
+              <Select
+                size="small"
+                value={role?.id}
+                style={{ width: 120 }}
+                onChange={(value) => handleChangeRole(record.id, value)}
+              >
+                {roles.map((r) => (
+                  <Select.Option key={r.id} value={r.id}>
+                    {r.name}
+                  </Select.Option>
+                ))}
+              </Select>
+            )}
+          </Space>
+        );
+      },
+    },
+    {
+      title: "가입일",
+      dataIndex: "joined_at",
+      key: "joined_at",
+      render: (date: string) => new Date(date).toLocaleDateString(),
+    },
+  ];
+
+  const rolesColumns = [
+    {
+      title: "역할 이름",
+      dataIndex: "name",
+      key: "name",
+      render: (name: string) => (
+        <Tag color={name === "owner" ? "gold" : name === "member" ? "blue" : "green"}>
+          {name === "owner" && <CrownOutlined />} {name}
+        </Tag>
+      ),
+    },
+    {
+      title: "초대 권한",
+      dataIndex: "can_invite",
+      key: "can_invite",
+      render: (value: boolean) => (
+        <Tag color={value ? "green" : "red"}>{value ? "가능" : "불가능"}</Tag>
+      ),
+    },
+    {
+      title: "역할 관리",
+      dataIndex: "can_manage_roles",
+      key: "can_manage_roles",
+      render: (value: boolean) => (
+        <Tag color={value ? "green" : "red"}>{value ? "가능" : "불가능"}</Tag>
+      ),
+    },
+    {
+      title: "양식 생성",
+      dataIndex: "can_create_form",
+      key: "can_create_form",
+      render: (value: boolean) => (
+        <Tag color={value ? "green" : "red"}>{value ? "가능" : "불가능"}</Tag>
+      ),
+    },
+    {
+      title: "양식 삭제",
+      dataIndex: "can_delete_form",
+      key: "can_delete_form",
+      render: (value: boolean) => (
+        <Tag color={value ? "green" : "red"}>{value ? "가능" : "불가능"}</Tag>
+      ),
+    },
+    {
+      title: "작업",
+      key: "actions",
+      render: (_, record: any) => {
+        if (record.name === "owner" || record.name === "member") {
+          return <span className="text-gray-400">기본 역할</span>;
+        }
+
+        if (!userRole?.can_manage_roles) {
+          return null;
+        }
+
+        return (
+          <Space>
+            <Button size="small" icon={<EditOutlined />} onClick={() => setEditingRole(record)}>
+              수정
+            </Button>
+            <Popconfirm
+              title="정말 이 역할을 삭제하시겠습니까?"
+              onConfirm={() => handleDeleteRole(record.id)}
+            >
+              <Button size="small" danger icon={<DeleteOutlined />}>
+                삭제
+              </Button>
+            </Popconfirm>
+          </Space>
+        );
+      },
+    },
+  ];
+
+  const tabItems = [
+    {
+      key: "members",
+      label: `멤버 (${members.length})`,
+      children: (
+        <div>
+          <div className="mb-4 flex justify-between">
+            <h3 className="text-lg font-medium">그룹 멤버</h3>
+            {userRole?.can_invite && (
+              <Button
+                type="primary"
+                icon={<UserAddOutlined />}
+                onClick={() => setInviteModalVisible(true)}
+              >
+                멤버 초대
+              </Button>
+            )}
+          </div>
+          <Table columns={membersColumns} dataSource={members} rowKey="id" pagination={false} />
+        </div>
+      ),
+    },
+    {
+      key: "roles",
+      label: `역할 (${roles.length})`,
+      children: (
+        <div>
+          <div className="mb-4 flex justify-between">
+            <h3 className="text-lg font-medium">그룹 역할</h3>
+            {userRole?.can_manage_roles && (
+              <Button
+                type="primary"
+                icon={<SettingOutlined />}
+                onClick={() => setRoleModalVisible(true)}
+              >
+                새 역할 만들기
+              </Button>
+            )}
+          </div>
+          <Table columns={rolesColumns} dataSource={roles} rowKey="id" pagination={false} />
+        </div>
+      ),
+    },
+  ];
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card>
+          <div className="text-center">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">로그인이 필요합니다</h2>
+            <Button type="primary" onClick={() => router.push("/auth")}>
+              로그인 하러 가기
+            </Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* 헤더 */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/groups")}>
+                뒤로 가기
+              </Button>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">{group?.name || "그룹 이름"}</h1>
+                <p className="text-gray-600 mt-2">{group?.description || "그룹 설명"}</p>
+              </div>
+            </div>
+            <Space>
+              <Button icon={<SettingOutlined />} onClick={() => setSettingsModalVisible(true)}>
+                그룹 설정
+              </Button>
+            </Space>
+          </div>
+        </div>
+
+        {/* 탭 컨텐츠 */}
+        <Card>
+          <Tabs defaultActiveKey="members" items={tabItems} />
+        </Card>
+
+        {/* 멤버 초대 모달 */}
+        <Modal
+          title="멤버 초대"
+          open={inviteModalVisible}
+          onCancel={() => {
+            setInviteModalVisible(false);
+            inviteForm.resetFields();
+          }}
+          footer={null}
+          destroyOnClose
+        >
+          <Form form={inviteForm} layout="vertical" onFinish={handleInvite}>
+            <Form.Item
+              name="identifier"
+              label="이메일 또는 전화번호"
+              rules={[{ required: true, message: "이메일 또는 전화번호를 입력해주세요!" }]}
+            >
+              <Input placeholder="example@email.com 또는 010-1234-5678" prefix={<MailOutlined />} />
+            </Form.Item>
+
+            <Form.Item
+              name="roleId"
+              label="역할"
+              rules={[{ required: true, message: "역할을 선택해주세요!" }]}
+            >
+              <Select placeholder="초대할 역할을 선택하세요">
+                {roles.map((role) => (
+                  <Select.Option key={role.id} value={role.id}>
+                    {role.name}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+
+            <Form.Item>
+              <Space>
+                <Button onClick={() => setInviteModalVisible(false)}>취소</Button>
+                <Button type="primary" htmlType="submit">
+                  초대 보내기
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </Modal>
+
+        {/* 역할 생성 모달 */}
+        <Modal
+          title="새 역할 만들기"
+          open={roleModalVisible}
+          onCancel={() => {
+            setRoleModalVisible(false);
+            roleForm.resetFields();
+          }}
+          footer={null}
+          destroyOnClose
+        >
+          <Form form={roleForm} layout="vertical" onFinish={handleCreateRole}>
+            <Form.Item
+              name="name"
+              label="역할 이름"
+              rules={[{ required: true, message: "역할 이름을 입력해주세요!" }]}
+            >
+              <Input placeholder="예: 매니저, 에디터" />
+            </Form.Item>
+
+            <Form.Item name="can_invite" valuePropName="checked">
+              <Space>
+                <Switch />
+                <span>멤버 초대 권한</span>
+              </Space>
+            </Form.Item>
+
+            <Form.Item name="can_manage_roles" valuePropName="checked">
+              <Space>
+                <Switch />
+                <span>역할 관리 권한</span>
+              </Space>
+            </Form.Item>
+
+            <Form.Item name="can_create_form" valuePropName="checked">
+              <Space>
+                <Switch />
+                <span>양식 생성 권한</span>
+              </Space>
+            </Form.Item>
+
+            <Form.Item name="can_delete_form" valuePropName="checked">
+              <Space>
+                <Switch />
+                <span>양식 삭제 권한</span>
+              </Space>
+            </Form.Item>
+
+            <Form.Item>
+              <Space>
+                <Button onClick={() => setRoleModalVisible(false)}>취소</Button>
+                <Button type="primary" htmlType="submit">
+                  역할 만들기
+                </Button>
+              </Space>
+            </Form.Item>
+          </Form>
+        </Modal>
+
+        {/* 역할 수정 모달 */}
+        <Modal
+          title={`역할 수정: ${editingRole?.name}`}
+          open={!!editingRole}
+          onCancel={() => setEditingRole(null)}
+          footer={null}
+          destroyOnClose
+        >
+          {editingRole && (
+            <Form
+              layout="vertical"
+              initialValues={editingRole}
+              onFinish={(values) => handleUpdateRole(editingRole.id, values)}
+            >
+              <Form.Item name="can_invite" valuePropName="checked">
+                <Space>
+                  <Switch />
+                  <span>멤버 초대 권한</span>
+                </Space>
+              </Form.Item>
+
+              <Form.Item name="can_manage_roles" valuePropName="checked">
+                <Space>
+                  <Switch />
+                  <span>역할 관리 권한</span>
+                </Space>
+              </Form.Item>
+
+              <Form.Item name="can_create_form" valuePropName="checked">
+                <Space>
+                  <Switch />
+                  <span>양식 생성 권한</span>
+                </Space>
+              </Form.Item>
+
+              <Form.Item name="can_delete_form" valuePropName="checked">
+                <Space>
+                  <Switch />
+                  <span>양식 삭제 권한</span>
+                </Space>
+              </Form.Item>
+
+              <Form.Item>
+                <Space>
+                  <Button onClick={() => setEditingRole(null)}>취소</Button>
+                  <Button type="primary" htmlType="submit">
+                    수정 완료
+                  </Button>
+                </Space>
+              </Form.Item>
+            </Form>
+          )}
+        </Modal>
+      </div>
+    </div>
+  );
+}

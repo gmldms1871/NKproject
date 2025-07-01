@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import { ConfigProvider } from "antd";
 import koKR from "antd/locale/ko_KR";
 import { AuthProvider } from "@/contexts/auth-context";
+import { NavigationWrapper } from "@/components/NavigationWrapper";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -30,7 +31,9 @@ export default function RootLayout({
             },
           }}
         >
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <NavigationWrapper>{children}</NavigationWrapper>
+          </AuthProvider>
         </ConfigProvider>
       </body>
     </html>
