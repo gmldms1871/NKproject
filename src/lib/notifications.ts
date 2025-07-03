@@ -1,4 +1,4 @@
-import { supabase } from "./supabase";
+import { supabaseAdmin } from "./supabase";
 import { Database } from "./types/types";
 
 type Notification = Database["public"]["Tables"]["notifications"]["Row"];
@@ -17,7 +17,7 @@ export const getUserNotifications = async (
   userId: string
 ): Promise<ApiResponse<Notification[]>> => {
   try {
-    const { data: notifications, error } = await supabase
+    const { data: notifications, error } = await supabaseAdmin
       .from("notifications")
       .select(
         `
@@ -30,6 +30,7 @@ export const getUserNotifications = async (
       .order("created_at", { ascending: false });
 
     if (error) {
+      console.error("Get notifications error:", error);
       return { success: false, error: "알림 조회에 실패했습니다." };
     }
 
@@ -45,13 +46,14 @@ export const getUserNotifications = async (
  */
 export const getUnreadNotificationCount = async (userId: string): Promise<ApiResponse<number>> => {
   try {
-    const { count, error } = await supabase
+    const { count, error } = await supabaseAdmin
       .from("notifications")
       .select("*", { count: "exact", head: true })
       .eq("target_id", userId)
       .eq("is_read", false);
 
     if (error) {
+      console.error("Get unread count error:", error);
       return { success: false, error: "알림 개수 조회에 실패했습니다." };
     }
 
@@ -70,13 +72,14 @@ export const markNotificationAsRead = async (
   userId: string
 ): Promise<ApiResponse> => {
   try {
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("notifications")
       .update({ is_read: true })
       .eq("id", notificationId)
       .eq("target_id", userId);
 
     if (error) {
+      console.error("Mark as read error:", error);
       return { success: false, error: "알림 읽음 처리에 실패했습니다." };
     }
 
@@ -92,13 +95,14 @@ export const markNotificationAsRead = async (
  */
 export const markAllNotificationsAsRead = async (userId: string): Promise<ApiResponse> => {
   try {
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("notifications")
       .update({ is_read: true })
       .eq("target_id", userId)
       .eq("is_read", false);
 
     if (error) {
+      console.error("Mark all as read error:", error);
       return { success: false, error: "전체 알림 읽음 처리에 실패했습니다." };
     }
 
@@ -117,13 +121,14 @@ export const deleteNotification = async (
   userId: string
 ): Promise<ApiResponse> => {
   try {
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("notifications")
       .delete()
       .eq("id", notificationId)
       .eq("target_id", userId);
 
     if (error) {
+      console.error("Delete notification error:", error);
       return { success: false, error: "알림 삭제에 실패했습니다." };
     }
 
@@ -139,13 +144,14 @@ export const deleteNotification = async (
  */
 export const cleanupExpiredNotifications = async (userId: string): Promise<ApiResponse> => {
   try {
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("notifications")
       .delete()
       .eq("target_id", userId)
       .lt("expires_at", new Date().toISOString());
 
     if (error) {
+      console.error("Cleanup expired notifications error:", error);
       return { success: false, error: "만료된 알림 정리에 실패했습니다." };
     }
 

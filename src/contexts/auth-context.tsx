@@ -19,13 +19,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // 로컬 스토리지에서 사용자 정보 복원
-    const savedUser = localStorage.getItem("user");
-    if (savedUser) {
+    // 클라이언트 사이드에서만 localStorage 접근
+    if (typeof window !== "undefined") {
       try {
-        setUser(JSON.parse(savedUser));
+        const savedUser = localStorage.getItem("user");
+        if (savedUser) {
+          const parsedUser = JSON.parse(savedUser);
+          setUser(parsedUser);
+        }
       } catch (error) {
         console.error("사용자 정보 복원 실패:", error);
+        // 손상된 데이터 제거
+        localStorage.removeItem("user");
       }
     }
     setIsLoading(false);
@@ -33,10 +38,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateUser = (newUser: User | null) => {
     setUser(newUser);
-    if (newUser) {
-      localStorage.setItem("user", JSON.stringify(newUser));
-    } else {
-      localStorage.removeItem("user");
+
+    // 클라이언트 사이드에서만 localStorage 접근
+    if (typeof window !== "undefined") {
+      try {
+        if (newUser) {
+          localStorage.setItem("user", JSON.stringify(newUser));
+        } else {
+          localStorage.removeItem("user");
+        }
+      } catch (error) {
+        console.error("사용자 정보 저장 실패:", error);
+      }
     }
   };
 

@@ -10,7 +10,6 @@ import {
   ClockCircleOutlined,
   ExclamationCircleOutlined,
   UserOutlined,
-  MailOutlined,
   ArrowLeftOutlined,
   CalendarOutlined,
 } from "@ant-design/icons";

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Button, Empty, Badge, Space, Avatar, Popconfirm, Tabs, Spin, App } from "antd";
+import { Card, Button, Empty, Badge, Space, Avatar, Popconfirm, Tabs, Spin, message } from "antd";
 import {
   BellOutlined,
   TeamOutlined,
@@ -11,7 +11,6 @@ import {
   EyeOutlined,
   ClockCircleOutlined,
   MailOutlined,
-  UserOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -48,7 +47,6 @@ export default function NotificationsPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { setPageHeader } = usePageHeader();
-  const { message: messageApi } = App.useApp();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -94,10 +92,10 @@ export default function NotificationsPage() {
           }))
         );
       } else {
-        messageApi.error(result.error || "알림을 불러오는데 실패했습니다.");
+        message.error(result.error || "알림을 불러오는데 실패했습니다.");
       }
     } catch (error) {
-      messageApi.error("알림을 불러오는 중 오류가 발생했습니다.");
+      message.error("알림을 불러오는 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -127,12 +125,12 @@ export default function NotificationsPage() {
           prev.map((notif) => (notif.id === notificationId ? { ...notif, is_read: true } : notif))
         );
         setUnreadCount((prev) => Math.max(0, prev - 1));
-        messageApi.success("알림을 읽음으로 처리했습니다.");
+        message.success("알림을 읽음으로 처리했습니다.");
       } else {
-        messageApi.error(result.error || "알림 읽음 처리에 실패했습니다.");
+        message.error(result.error || "알림 읽음 처리에 실패했습니다.");
       }
     } catch (error) {
-      messageApi.error("알림 읽음 처리 중 오류가 발생했습니다.");
+      message.error("알림 읽음 처리 중 오류가 발생했습니다.");
     }
   };
 
@@ -145,12 +143,12 @@ export default function NotificationsPage() {
       if (result.success) {
         setNotifications((prev) => prev.map((notif) => ({ ...notif, is_read: true })));
         setUnreadCount(0);
-        messageApi.success("모든 알림을 읽음으로 처리했습니다.");
+        message.success("모든 알림을 읽음으로 처리했습니다.");
       } else {
-        messageApi.error(result.error || "전체 읽음 처리에 실패했습니다.");
+        message.error(result.error || "전체 읽음 처리에 실패했습니다.");
       }
     } catch (error) {
-      messageApi.error("전체 읽음 처리 중 오류가 발생했습니다.");
+      message.error("전체 읽음 처리 중 오류가 발생했습니다.");
     }
   };
 
@@ -162,12 +160,12 @@ export default function NotificationsPage() {
 
       if (result.success) {
         setNotifications((prev) => prev.filter((notif) => notif.id !== notificationId));
-        messageApi.success("알림이 삭제되었습니다.");
+        message.success("알림이 삭제되었습니다.");
       } else {
-        messageApi.error(result.error || "알림 삭제에 실패했습니다.");
+        message.error(result.error || "알림 삭제에 실패했습니다.");
       }
     } catch (error) {
-      messageApi.error("알림 삭제 중 오류가 발생했습니다.");
+      message.error("알림 삭제 중 오류가 발생했습니다.");
     }
   };
 

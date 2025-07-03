@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from "./supabase";
+import { supabaseAdmin } from "./supabase";
 import { Database } from "./types/types";
 
 type Group = Database["public"]["Tables"]["groups"]["Row"];

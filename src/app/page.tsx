@@ -1,27 +1,15 @@
 "use client";
 
-import Link from "next/link";
-import { Button, Card, Descriptions, Layout, Space, App } from "antd";
-import { LogoutOutlined, UserOutlined, LoginOutlined, UserAddOutlined } from "@ant-design/icons";
+import { Button, Card, Descriptions, Layout, Space } from "antd";
+import { UserOutlined } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
-import { signOut } from "@/lib/users";
 import { useRouter } from "next/navigation";
 
-const { Header, Content, Footer } = Layout;
+const { Content, Footer } = Layout;
 
 export default function Home() {
-  const { user, setUser, isLoading } = useAuth();
-  const { message: messageApi } = App.useApp();
+  const { user, isLoading } = useAuth();
   const router = useRouter();
-
-  const handleSignOut = async () => {
-    const result = await signOut();
-    if (result.success) {
-      setUser(null);
-      messageApi.success("안전하게 로그아웃되었습니다.");
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">

@@ -24,7 +24,6 @@ import {
   CrownOutlined,
   DeleteOutlined,
   EditOutlined,
-  TeamOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -36,10 +35,6 @@ import {
   createGroupRole,
   updateGroupRole,
   deleteGroupRole,
-  updateGroup,
-  transferGroupOwnership,
-  leaveGroup,
-  deleteGroup,
 } from "@/lib/groups";
 
 export default function GroupDetailPage() {

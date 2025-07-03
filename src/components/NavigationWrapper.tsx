@@ -2,7 +2,7 @@
 
 import { useState, useEffect, ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Layout, Menu, Badge, Avatar, Dropdown, Space, Button, App } from "antd";
+import { Layout, Menu, Badge, Avatar, Dropdown, Space, Button } from "antd";
 import {
   HomeOutlined,
   TeamOutlined,

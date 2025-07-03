@@ -2,17 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Tabs, Button, Input, Form, Select, DatePicker, App } from "antd";
+import { Card, Tabs, Button, Input, Form, Select, DatePicker, message } from "antd";
 import { UserOutlined, LockOutlined, MailOutlined, PhoneOutlined } from "@ant-design/icons";
 import { signUp, signIn, EDUCATION_LEVELS } from "@/lib/users";
 import { useAuth } from "@/contexts/auth-context";
 import { formatPhoneNumber } from "@/lib/phone-utils";
-import dayjs from "dayjs";
 
 export default function AuthPage() {
   const router = useRouter();
   const { setUser } = useAuth();
-  const { message: messageApi } = App.useApp();
   const [isLoading, setIsLoading] = useState(false);
   const [signUpForm] = Form.useForm();
   const [signInForm] = Form.useForm();
@@ -27,6 +25,7 @@ export default function AuthPage() {
         signUpForm.setFieldValue("phone", formatted);
       }
     };
+
   const handleSignUp = async (values: any) => {
     setIsLoading(true);
 
@@ -42,13 +41,13 @@ export default function AuthPage() {
       });
 
       if (result.success) {
-        messageApi.success("회원가입이 완료되었습니다! 로그인해주세요.");
+        message.success("회원가입이 완료되었습니다! 로그인해주세요.");
         signUpForm.resetFields();
       } else {
-        messageApi.error(result.error || "회원가입에 실패했습니다.");
+        message.error(result.error || "회원가입에 실패했습니다.");
       }
     } catch (error) {
-      messageApi.error("회원가입 중 오류가 발생했습니다.");
+      message.error("회원가입 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -66,13 +65,13 @@ export default function AuthPage() {
 
       if (result.success && result.data) {
         setUser(result.data);
-        messageApi.success(`환영합니다, ${result.data.name}님!`);
+        message.success(`환영합니다, ${result.data.name}님!`);
         router.push("/mypage");
       } else {
-        messageApi.error(result.error || "로그인에 실패했습니다.");
+        message.error(result.error || "로그인에 실패했습니다.");
       }
     } catch (error) {
-      messageApi.error("로그인 중 오류가 발생했습니다.");
+      message.error("로그인 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -191,7 +190,11 @@ export default function AuthPage() {
               },
             ]}
           >
-            <Input prefix={<PhoneOutlined />} placeholder="010-1234-5678" />
+            <Input
+              prefix={<PhoneOutlined />}
+              placeholder="010-1234-5678"
+              onChange={handlePhoneChange("signup")}
+            />
           </Form.Item>
 
           <Form.Item

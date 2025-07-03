@@ -14,7 +14,7 @@ import {
   Empty,
   Spin,
   Tag,
-  App,
+  message,
 } from "antd";
 import {
   UserOutlined,
@@ -55,7 +55,6 @@ export default function InviteModal({
   inviterId,
   onSuccess,
 }: InviteModalProps) {
-  const { message: messageApi } = App.useApp();
   const [activeTab, setActiveTab] = useState("search");
   const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -92,11 +91,11 @@ export default function InviteModal({
       if (result.success) {
         setSearchResults(result.data || []);
       } else {
-        messageApi.error(result.error || "사용자 검색에 실패했습니다.");
+        message.error(result.error || "사용자 검색에 실패했습니다.");
         setSearchResults([]);
       }
     } catch (error) {
-      messageApi.error("사용자 검색 중 오류가 발생했습니다.");
+      message.error("사용자 검색 중 오류가 발생했습니다.");
       setSearchResults([]);
     } finally {
       setSearchLoading(false);
@@ -124,7 +123,7 @@ export default function InviteModal({
   // 검색된 사용자로 초대
   const handleInviteSearchedUser = async () => {
     if (!selectedUser || !selectedRole) {
-      messageApi.warning("사용자와 역할을 모두 선택해주세요.");
+      message.warning("사용자와 역할을 모두 선택해주세요.");
       return;
     }
 
@@ -138,14 +137,14 @@ export default function InviteModal({
       });
 
       if (result.success) {
-        messageApi.success(`${selectedUser.nickname}님에게 초대를 전송했습니다!`);
+        message.success(`${selectedUser.nickname}님에게 초대를 전송했습니다!`);
         onSuccess();
         onCancel();
       } else {
-        messageApi.error(result.error || "초대 전송에 실패했습니다.");
+        message.error(result.error || "초대 전송에 실패했습니다.");
       }
     } catch (error) {
-      messageApi.error("초대 전송 중 오류가 발생했습니다.");
+      message.error("초대 전송 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -167,14 +166,14 @@ export default function InviteModal({
       const result = await inviteToGroup(inviteData);
 
       if (result.success) {
-        messageApi.success("초대를 전송했습니다!");
+        message.success("초대를 전송했습니다!");
         onSuccess();
         onCancel();
       } else {
-        messageApi.error(result.error || "초대 전송에 실패했습니다.");
+        message.error(result.error || "초대 전송에 실패했습니다.");
       }
     } catch (error) {
-      messageApi.error("초대 전송 중 오류가 발생했습니다.");
+      message.error("초대 전송 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -399,7 +398,7 @@ export default function InviteModal({
       onCancel={onCancel}
       footer={null}
       width={600}
-      destroyOnHidden
+      destroyOnClose
     >
       <div className="mb-4">
         <p className="text-gray-600">
