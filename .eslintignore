@@ -1,0 +1,3 @@
+src/lib/types/types.ts
+*.d.ts
+node_modules

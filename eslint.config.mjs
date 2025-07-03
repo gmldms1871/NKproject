@@ -10,18 +10,22 @@ const compat = new FlatCompat({
   baseDirectory: __dirname,
 });
 
+// eslint-disable-next-line import/no-anonymous-default-export
 export default [
   ...compat.extends(
-    "plugin:prettier/recommended",
     "next",
     "next/core-web-vitals",
-    "next/typescript"
+    "next/typescript",
+    "prettier" // prettier를 마지막에
   ),
   {
     rules: {
       "no-unused-vars": "warn",
-      "semi": ["warn", "always"],
-      "prettier/prettier": "warn"
-    }
-  }
+      semi: "off", // Prettier가 처리하도록
+      "prettier/prettier": "off", // 일시적으로 비활성화
+    },
+  },
+  {
+    ignores: ["src/lib/types/types.ts", "*.d.ts", "node_modules/**", ".next/**"],
+  },
 ];

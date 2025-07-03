@@ -9,14 +9,10 @@
   "eslint.options": {
     "overrideConfigFile": "eslint.config.mjs"
   },
-  "eslint.validate": [
-    "javascript",
-    "typescript",
-    "javascriptreact",
-    "typescriptreact"
-  ],
+  "eslint.validate": ["javascript", "typescript", "javascriptreact", "typescriptreact"],
   "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
   "editor.codeActionsOnSave": {
-  "source.fixAll.eslint": "always"
-}
+    "source.fixAll.eslint": "always"
+  }
 }
