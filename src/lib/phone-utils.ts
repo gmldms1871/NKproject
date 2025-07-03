@@ -56,7 +56,7 @@ export const maskPhoneNumber = (phone: string): string => {
 /**
  * 전화번호 입력 이벤트 핸들러
  */
-// eslint-disable-next-line no-unused-vars
+
 export const handlePhoneInputChange = (value: string, onChange: (val: string) => void) => {
   const formatted = formatPhoneNumber(value);
   onChange(formatted);

@@ -21,6 +21,7 @@ import {
   deleteNotification,
   getUnreadNotificationCount,
 } from "@/lib/notifications";
+import { useCallback } from "react";
 
 interface Notification {
   id: string;
@@ -51,32 +52,7 @@ export default function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // 페이지 헤더 설정
-  useEffect(() => {
-    setPageHeader({
-      title: "알림",
-      subtitle: "받은 알림을 확인하고 관리하세요",
-      actions:
-        unreadCount > 0 ? (
-          <Button type="primary" icon={<CheckOutlined />} onClick={handleMarkAllAsRead}>
-            모두 읽음
-          </Button>
-        ) : undefined,
-    });
-
-    return () => setPageHeader(null);
-  }, [setPageHeader, unreadCount]);
-
-  useEffect(() => {
-    if (!user) {
-      router.push("/auth");
-      return;
-    }
-    loadNotifications();
-    loadUnreadCount();
-  }, [user, router]);
-
-  const loadNotifications = async () => {
+  const loadNotifications = useCallback(async () => {
     if (!user) return;
 
     setLoading(true);
@@ -99,9 +75,9 @@ export default function NotificationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
 
-  const loadUnreadCount = async () => {
+  const loadUnreadCount = useCallback(async () => {
     if (!user) return;
 
     try {
@@ -112,7 +88,50 @@ export default function NotificationsPage() {
     } catch (error) {
       console.error("읽지 않은 알림 개수 조회 실패:", error);
     }
-  };
+  }, [user]);
+
+  const handleMarkAllAsRead = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const result = await markAllNotificationsAsRead(user.id);
+
+      if (result.success) {
+        setNotifications((prev) => prev.map((notif) => ({ ...notif, is_read: true })));
+        setUnreadCount(0);
+        message.success("모든 알림을 읽음으로 처리했습니다.");
+      } else {
+        message.error(result.error || "전체 읽음 처리에 실패했습니다.");
+      }
+    } catch (error) {
+      message.error("전체 읽음 처리 중 오류가 발생했습니다.");
+    }
+  }, [user]);
+
+  // 페이지 헤더 설정
+  useEffect(() => {
+    setPageHeader({
+      title: "알림",
+      subtitle: "받은 알림을 확인하고 관리하세요",
+      actions:
+        unreadCount > 0 ? (
+          <Button type="primary" icon={<CheckOutlined />} onClick={handleMarkAllAsRead}>
+            모두 읽음
+          </Button>
+        ) : undefined,
+    });
+
+    return () => setPageHeader(null);
+  }, [handleMarkAllAsRead, setPageHeader, unreadCount]);
+
+  useEffect(() => {
+    if (!user) {
+      router.push("/auth");
+      return;
+    }
+    loadNotifications();
+    loadUnreadCount();
+  }, [user, router, loadNotifications, loadUnreadCount]);
 
   const handleMarkAsRead = async (notificationId: string) => {
     if (!user) return;
@@ -131,24 +150,6 @@ export default function NotificationsPage() {
       }
     } catch (error) {
       message.error("알림 읽음 처리 중 오류가 발생했습니다.");
-    }
-  };
-
-  const handleMarkAllAsRead = async () => {
-    if (!user) return;
-
-    try {
-      const result = await markAllNotificationsAsRead(user.id);
-
-      if (result.success) {
-        setNotifications((prev) => prev.map((notif) => ({ ...notif, is_read: true })));
-        setUnreadCount(0);
-        message.success("모든 알림을 읽음으로 처리했습니다.");
-      } else {
-        message.error(result.error || "전체 읽음 처리에 실패했습니다.");
-      }
-    } catch (error) {
-      message.error("전체 읽음 처리 중 오류가 발생했습니다.");
     }
   };
 
