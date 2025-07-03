@@ -1,3 +1,4 @@
+/* eslint-disable import/no-anonymous-default-export */
 // eslint.config.mjs
 import { dirname } from "path";
 import { fileURLToPath } from "url";
@@ -6,23 +7,20 @@ import { FlatCompat } from "@eslint/eslintrc";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const compat = new FlatCompat({
-  baseDirectory: __dirname,
-});
+const compat = new FlatCompat({ baseDirectory: __dirname });
 
-// eslint-disable-next-line import/no-anonymous-default-export
 export default [
-  ...compat.extends(
-    "next",
-    "next/core-web-vitals",
-    "next/typescript",
-    "prettier" // prettier를 마지막에
-  ),
+  ...compat.extends("next", "next/core-web-vitals", "next/typescript", "prettier"),
   {
     rules: {
-      "no-unused-vars": "warn",
-      semi: "off", // Prettier가 처리하도록
-      "prettier/prettier": "off", // 일시적으로 비활성화
+      // JS unused-vars 룰 끄기
+      "no-unused-vars": "off",
+      // TS unused-vars 룰 끄기
+      "@typescript-eslint/no-unused-vars": "off",
+
+      // 기타 기존 설정
+      semi: "off",
+      "prettier/prettier": "off",
     },
   },
   {

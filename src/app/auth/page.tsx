@@ -4,9 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Tabs, Button, Input, Form, Select, DatePicker, message } from "antd";
 import { UserOutlined, LockOutlined, MailOutlined, PhoneOutlined } from "@ant-design/icons";
-import { signUp, signIn, EDUCATION_LEVELS } from "@/lib/users";
+import { signUp, signIn, EDUCATION_LEVELS, SignInRequest } from "@/lib/users";
 import { useAuth } from "@/contexts/auth-context";
 import { formatPhoneNumber } from "@/lib/phone-utils";
+import { EducationLevel, User } from "@/lib/supabase";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -26,7 +27,7 @@ export default function AuthPage() {
       }
     };
 
-  const handleSignUp = async (values: any) => {
+  const handleSignUp = async (values: User) => {
     setIsLoading(true);
 
     try {
@@ -36,8 +37,8 @@ export default function AuthPage() {
         name: values.name,
         nickname: values.nickname,
         phone: values.phone,
-        birth_date: values.birth_date.format("YYYY-MM-DD"),
-        education: values.education,
+        birth_date: values.birth_date,
+        education: (values.education ?? EDUCATION_LEVELS.ELEM_1) as EducationLevel,
       });
 
       if (result.success) {
@@ -47,6 +48,7 @@ export default function AuthPage() {
         message.error(result.error || "회원가입에 실패했습니다.");
       }
     } catch (error) {
+      console.error(error);
       message.error("회원가입 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
@@ -54,7 +56,7 @@ export default function AuthPage() {
   };
 
   // 로그인 처리
-  const handleSignIn = async (values: any) => {
+  const handleSignIn = async (values: SignInRequest) => {
     setIsLoading(true);
 
     try {
@@ -71,6 +73,7 @@ export default function AuthPage() {
         message.error(result.error || "로그인에 실패했습니다.");
       }
     } catch (error) {
+      console.error(error);
       message.error("로그인 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);

@@ -1,6 +1,5 @@
 import bcrypt from "bcryptjs";
 import {
-  supabase,
   supabaseAdmin,
   EDUCATION_LEVELS,
   validatePassword,
@@ -14,11 +13,10 @@ import { Database } from "./types/types";
 export { EDUCATION_LEVELS } from "./supabase";
 
 type User = Database["public"]["Tables"]["users"]["Row"];
-type UserInsert = Database["public"]["Tables"]["users"]["Insert"];
 type UserUpdate = Database["public"]["Tables"]["users"]["Update"];
 
-// API 응답 타입 정의
-export interface ApiResponse<T = any> {
+// API 응답 타입 정의 - 제네릭 기본값을 unknown으로 변경하여 더 안전하게
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -52,6 +50,15 @@ export interface UpdateProfileRequest {
 export interface ResetPasswordRequest {
   currentPassword: string;
   newPassword: string;
+}
+
+// 사용자 검색 결과 타입
+export interface SearchUserResult {
+  id: string;
+  name: string;
+  nickname: string;
+  email: string;
+  phone: string;
 }
 
 /**
@@ -154,7 +161,7 @@ export const signUp = async (userData: SignUpRequest): Promise<ApiResponse<User>
     }
 
     // 비밀번호 제외하고 반환
-    const { password, ...userWithoutPassword } = newUser;
+    const { ...userWithoutPassword } = newUser;
     return { success: true, data: userWithoutPassword as User };
   } catch (error) {
     console.error("Sign up error:", error);
@@ -197,7 +204,7 @@ export const signIn = async (credentials: SignInRequest): Promise<ApiResponse<Us
     }
 
     // 비밀번호 제외하고 반환
-    const { password, ...userWithoutPassword } = user;
+    const { ...userWithoutPassword } = user;
     return { success: true, data: userWithoutPassword as User };
   } catch (error) {
     console.error("Sign in error:", error);
@@ -209,7 +216,7 @@ export const signIn = async (credentials: SignInRequest): Promise<ApiResponse<Us
  * 로그아웃
  * 클라이언트에서 세션 정리
  */
-export const signOut = async (): Promise<ApiResponse> => {
+export const signOut = async (): Promise<ApiResponse<void>> => {
   try {
     // 실제 구현에서는 JWT 토큰을 무효화하거나 세션을 정리
     // 여기서는 성공 응답만 반환
@@ -227,7 +234,7 @@ export const signOut = async (): Promise<ApiResponse> => {
 export const resetPassword = async (
   userId: string,
   passwordData: ResetPasswordRequest
-): Promise<ApiResponse> => {
+): Promise<ApiResponse<void>> => {
   try {
     if (!passwordData.currentPassword || !passwordData.newPassword) {
       return { success: false, error: "현재 비밀번호와 새 비밀번호를 입력해주세요." };
@@ -288,7 +295,10 @@ export const resetPassword = async (
  * 계정 탈퇴
  * deleted_at 설정 및 정보 마스킹, 재가입 방지
  */
-export const deleteAccount = async (userId: string, password: string): Promise<ApiResponse> => {
+export const deleteAccount = async (
+  userId: string,
+  password: string
+): Promise<ApiResponse<void>> => {
   try {
     if (!password) {
       return { success: false, error: "비밀번호를 입력해주세요." };
@@ -397,7 +407,7 @@ export const updateProfile = async (
     }
 
     // 비밀번호 제외하고 반환
-    const { password, ...userWithoutPassword } = updatedUser;
+    const { ...userWithoutPassword } = updatedUser;
     return { success: true, data: userWithoutPassword as User };
   } catch (error) {
     console.error("Update profile error:", error);
@@ -422,7 +432,7 @@ export const getUser = async (userId: string): Promise<ApiResponse<User>> => {
     }
 
     // 비밀번호 제외하고 반환
-    const { password, ...userWithoutPassword } = user;
+    const { ...userWithoutPassword } = user;
     return { success: true, data: userWithoutPassword as User };
   } catch (error) {
     console.error("Get user error:", error);
@@ -433,14 +443,6 @@ export const getUser = async (userId: string): Promise<ApiResponse<User>> => {
 /**
  * 사용자 검색 (닉네임, 이메일, 전화번호로 검색)
  */
-export interface SearchUserResult {
-  id: string;
-  name: string;
-  nickname: string;
-  email: string;
-  phone: string;
-}
-
 export const searchUsers = async (query: string): Promise<ApiResponse<SearchUserResult[]>> => {
   try {
     if (!query || query.trim().length < 2) {
@@ -472,7 +474,9 @@ export const searchUsers = async (query: string): Promise<ApiResponse<SearchUser
 /**
  * 이메일 또는 전화번호로 사용자 찾기
  */
-export const findUserByIdentifier = async (identifier: string): Promise<ApiResponse<User>> => {
+export const findUserByIdentifier = async (
+  identifier: string
+): Promise<ApiResponse<Omit<User, "password">>> => {
   try {
     if (!identifier || identifier.trim() === "") {
       return { success: false, error: "이메일 또는 전화번호를 입력해주세요." };
@@ -482,7 +486,9 @@ export const findUserByIdentifier = async (identifier: string): Promise<ApiRespo
 
     let query = supabaseAdmin
       .from("users")
-      .select("id, name, nickname, email, phone")
+      .select(
+        "id, name, nickname, email, phone, birth_date, education, created_at, updated_at, deleted_at"
+      )
       .is("deleted_at", null);
 
     if (isEmail) {
@@ -497,7 +503,7 @@ export const findUserByIdentifier = async (identifier: string): Promise<ApiRespo
       return { success: false, error: "해당 사용자를 찾을 수 없습니다." };
     }
 
-    return { success: true, data: user as User };
+    return { success: true, data: user };
   } catch (error) {
     console.error("Find user by identifier error:", error);
     return { success: false, error: "사용자 검색 중 오류가 발생했습니다." };

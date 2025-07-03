@@ -2,17 +2,12 @@ import { supabaseAdmin } from "./supabase";
 import { Database } from "./types/types";
 
 type Group = Database["public"]["Tables"]["groups"]["Row"];
-type GroupInsert = Database["public"]["Tables"]["groups"]["Insert"];
-type GroupUpdate = Database["public"]["Tables"]["groups"]["Update"];
-type GroupMember = Database["public"]["Tables"]["group_member"]["Row"];
 type GroupRole = Database["public"]["Tables"]["group_roles"]["Row"];
-type GroupRoleInsert = Database["public"]["Tables"]["group_roles"]["Insert"];
-type GroupRoleUpdate = Database["public"]["Tables"]["group_roles"]["Update"];
 type Invitation = Database["public"]["Tables"]["invitations"]["Row"];
-type Notification = Database["public"]["Tables"]["notifications"]["Row"];
+type NotificationInsert = Database["public"]["Tables"]["notifications"]["Insert"];
 
 // API 응답 타입 정의
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -63,6 +58,57 @@ export interface UpdateRoleRequest {
 export interface UpdateMemberRoleRequest {
   memberId: string;
   newRoleId: string;
+}
+
+// 그룹 멤버 상세 정보 타입
+export interface GroupMemberWithDetails {
+  id: string;
+  user_id: string;
+  group_id: string;
+  group_role_id: string;
+  joined_at: string;
+  users: {
+    id: string;
+    name: string;
+    nickname: string;
+    email: string;
+  };
+  group_roles: {
+    id: string;
+    name: string;
+    can_invite: boolean;
+    can_manage_roles: boolean;
+    can_create_form: boolean;
+    can_delete_form: boolean;
+  };
+}
+
+// 초대 상세 정보 타입
+export interface InvitationWithDetails {
+  id: string;
+  group_id: string;
+  inviter_id: string;
+  invitee_email: string;
+  invitee_phone: string;
+  group_roles_id: string;
+  expires_at: string;
+  created_at: string;
+  groups: {
+    name: string;
+    description: string;
+    image_url: string;
+  };
+  group_roles: {
+    name: string;
+  };
+  users: {
+    nickname: string;
+  };
+}
+
+// 그룹과 멤버 정보를 포함한 타입
+export interface GroupWithMembers {
+  groups: Group;
 }
 
 /**
@@ -168,7 +214,7 @@ export const createGroup = async (
  */
 export const getMyGroups = async (userId: string): Promise<ApiResponse<Group[]>> => {
   try {
-    const { data: groups, error } = await supabaseAdmin
+    const { data: groupMemberships, error } = await supabaseAdmin
       .from("group_member")
       .select(
         `
@@ -181,8 +227,11 @@ export const getMyGroups = async (userId: string): Promise<ApiResponse<Group[]>>
       return { success: false, error: "그룹 조회에 실패했습니다." };
     }
 
-    const groupList = groups?.map((item) => item.groups).filter(Boolean) as Group[];
-    return { success: true, data: groupList || [] };
+    const groups = groupMemberships
+      ?.map((membership) => (membership as GroupWithMembers).groups)
+      .filter((group): group is Group => !!group);
+
+    return { success: true, data: groups };
   } catch (error) {
     console.error("Get my groups error:", error);
     return { success: false, error: "그룹 조회 중 오류가 발생했습니다." };
@@ -270,7 +319,7 @@ export const updateGroup = async (
 /**
  * 그룹 삭제
  */
-export const deleteGroup = async (groupId: string, userId: string): Promise<ApiResponse> => {
+export const deleteGroup = async (groupId: string, userId: string): Promise<ApiResponse<void>> => {
   try {
     // 권한 확인 (owner만 가능)
     const { data: group } = await supabaseAdmin
@@ -300,7 +349,7 @@ export const deleteGroup = async (groupId: string, userId: string): Promise<ApiR
 /**
  * 그룹 나가기
  */
-export const leaveGroup = async (groupId: string, userId: string): Promise<ApiResponse> => {
+export const leaveGroup = async (groupId: string, userId: string): Promise<ApiResponse<void>> => {
   try {
     // Owner는 나갈 수 없음
     const { data: group } = await supabaseAdmin
@@ -340,7 +389,7 @@ export const transferGroupOwnership = async (
   groupId: string,
   currentOwnerId: string,
   newOwnerId: string
-): Promise<ApiResponse> => {
+): Promise<ApiResponse<void>> => {
   try {
     // 현재 소유자인지 확인
     const { data: group } = await supabaseAdmin
@@ -430,7 +479,9 @@ export const transferGroupOwnership = async (
 /**
  * 그룹 초대
  */
-export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<ApiResponse> => {
+export const inviteToGroup = async (
+  inviteData: InviteToGroupRequest
+): Promise<ApiResponse<Invitation>> => {
   try {
     if (!inviteData.inviteeEmail && !inviteData.inviteePhone) {
       return { success: false, error: "초대할 이메일 또는 전화번호를 입력해주세요." };
@@ -448,7 +499,9 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
       .eq("user_id", inviteData.inviterId)
       .single();
 
-    if (!member?.group_roles?.can_invite) {
+    const memberRole = member as { group_roles: { can_invite: boolean } };
+
+    if (!memberRole?.group_roles?.can_invite) {
       return { success: false, error: "그룹 초대 권한이 없습니다." };
     }
 
@@ -504,7 +557,7 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
 
     // 사용자가 존재하면 알림 생성
     if (invitee) {
-      await supabaseAdmin.from("notifications").insert({
+      const notificationData: NotificationInsert = {
         target_id: invitee.id,
         creator_id: inviteData.inviterId,
         group_id: inviteData.groupId,
@@ -514,7 +567,9 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
         content: group.description || "그룹에 참여해보세요.",
         action_url: `/invitations/${invitation.id}`,
         is_read: false,
-      });
+      };
+
+      await supabaseAdmin.from("notifications").insert(notificationData);
     }
 
     return { success: true, data: invitation };
@@ -530,7 +585,7 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
 export const acceptGroupInvitation = async (
   invitationId: string,
   userId: string
-): Promise<ApiResponse> => {
+): Promise<ApiResponse<void>> => {
   try {
     // 초대 정보 조회
     const { data: invitation } = await supabaseAdmin
@@ -602,7 +657,7 @@ export const acceptGroupInvitation = async (
 export const rejectGroupInvitation = async (
   invitationId: string,
   userId: string
-): Promise<ApiResponse> => {
+): Promise<ApiResponse<void>> => {
   try {
     // 초대 삭제
     const { error } = await supabaseAdmin.from("invitations").delete().eq("id", invitationId);
@@ -628,7 +683,9 @@ export const rejectGroupInvitation = async (
 /**
  * 받은 그룹 초대 조회
  */
-export const getReceivedInvitations = async (userId: string): Promise<ApiResponse<any[]>> => {
+export const getReceivedInvitations = async (
+  userId: string
+): Promise<ApiResponse<InvitationWithDetails[]>> => {
   try {
     const { data: user } = await supabaseAdmin
       .from("users")
@@ -672,7 +729,19 @@ export const getReceivedInvitations = async (userId: string): Promise<ApiRespons
       return { success: false, error: "초대 조회에 실패했습니다." };
     }
 
-    return { success: true, data: invitations || [] };
+    // 필수 필드가 null이 아닌 경우만 반환
+    const validInvitations = (invitations || []).filter(
+      (invitation) =>
+        invitation &&
+        invitation.group_id &&
+        invitation.group_roles_id &&
+        invitation.id &&
+        invitation.groups &&
+        invitation.group_roles &&
+        invitation.users
+    ) as InvitationWithDetails[];
+
+    return { success: true, data: validInvitations };
   } catch (error) {
     console.error("Get received invitations error:", error);
     return { success: false, error: "초대 조회 중 오류가 발생했습니다." };
@@ -699,7 +768,11 @@ export const createGroupRole = async (
       .eq("user_id", userId)
       .single();
 
-    if (!member?.group_roles?.can_manage_roles) {
+    const memberRole = member as {
+      group_roles: { can_manage_roles: boolean };
+    };
+
+    if (!memberRole?.group_roles?.can_manage_roles) {
       return { success: false, error: "역할 관리 권한이 없습니다." };
     }
 
@@ -777,7 +850,11 @@ export const updateGroupRole = async (
       .eq("user_id", userId)
       .single();
 
-    if (!member?.group_roles?.can_manage_roles) {
+    const memberRole = member as {
+      group_roles: { can_manage_roles: boolean };
+    };
+
+    if (!memberRole?.group_roles?.can_manage_roles) {
       return { success: false, error: "역할 관리 권한이 없습니다." };
     }
 
@@ -803,7 +880,10 @@ export const updateGroupRole = async (
 /**
  * 역할 삭제
  */
-export const deleteGroupRole = async (roleId: string, userId: string): Promise<ApiResponse> => {
+export const deleteGroupRole = async (
+  roleId: string,
+  userId: string
+): Promise<ApiResponse<void>> => {
   try {
     // 역할 정보 조회
     const { data: role } = await supabaseAdmin
@@ -833,7 +913,11 @@ export const deleteGroupRole = async (roleId: string, userId: string): Promise<A
       .eq("user_id", userId)
       .single();
 
-    if (!member?.group_roles?.can_manage_roles) {
+    const memberRole = member as {
+      group_roles: { can_manage_roles: boolean };
+    };
+
+    if (!memberRole?.group_roles?.can_manage_roles) {
       return { success: false, error: "역할 관리 권한이 없습니다." };
     }
 
@@ -867,7 +951,7 @@ export const updateMemberRole = async (
   groupId: string,
   updateData: UpdateMemberRoleRequest,
   userId: string
-): Promise<ApiResponse> => {
+): Promise<ApiResponse<void>> => {
   try {
     // 권한 확인
     const { data: member } = await supabaseAdmin
@@ -881,7 +965,11 @@ export const updateMemberRole = async (
       .eq("user_id", userId)
       .single();
 
-    if (!member?.group_roles?.can_manage_roles) {
+    const memberRole = member as {
+      group_roles: { can_manage_roles: boolean };
+    };
+
+    if (!memberRole?.group_roles?.can_manage_roles) {
       return { success: false, error: "역할 관리 권한이 없습니다." };
     }
 
@@ -908,7 +996,7 @@ export const updateMemberRole = async (
 export const getGroupMembers = async (
   groupId: string,
   userId: string
-): Promise<ApiResponse<any[]>> => {
+): Promise<ApiResponse<GroupMemberWithDetails[]>> => {
   try {
     // 그룹 멤버인지 확인
     const { data: memberCheck } = await supabaseAdmin
@@ -939,7 +1027,17 @@ export const getGroupMembers = async (
       return { success: false, error: "멤버 조회에 실패했습니다." };
     }
 
-    return { success: true, data: members || [] };
+    // Filter out members with null required fields to satisfy GroupMemberWithDetails type
+    const validMembers = (members || []).filter(
+      (member) =>
+        member &&
+        member.user_id &&
+        member.group_id &&
+        member.group_role_id &&
+        member.users &&
+        member.group_roles
+    ) as GroupMemberWithDetails[];
+    return { success: true, data: validMembers };
   } catch (error) {
     console.error("Get group members error:", error);
     return { success: false, error: "멤버 조회 중 오류가 발생했습니다." };

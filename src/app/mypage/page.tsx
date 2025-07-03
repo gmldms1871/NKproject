@@ -31,6 +31,7 @@ import {
   EDUCATION_LEVELS,
 } from "@/lib/users";
 import dayjs from "dayjs";
+import { EducationLevel } from "@/lib/supabase";
 
 export default function MyPage() {
   const router = useRouter();
@@ -85,15 +86,21 @@ export default function MyPage() {
     }
   };
 
+  interface ProfileFormValues {
+    nickname: string;
+    birth_date?: dayjs.Dayjs;
+    education?: EducationLevel;
+  }
+
   // 프로필 수정 처리
-  const handleUpdateProfile = async (values: any) => {
+  const handleUpdateProfile = async ({ nickname, birth_date, education }: ProfileFormValues) => {
     setIsLoading(true);
 
     try {
       const result = await updateProfile(user.id, {
-        nickname: values.nickname,
-        birth_date: values.birth_date ? values.birth_date.format("YYYY-MM-DD") : undefined,
-        education: values.education,
+        nickname,
+        birth_date: birth_date?.format("YYYY-MM-DD"),
+        education,
       });
 
       if (result.success && result.data) {
@@ -109,9 +116,19 @@ export default function MyPage() {
     }
   };
 
+  interface ResetPasswordFormValues {
+    currentPassword: string;
+    newPassword: string;
+    confirmPassword: string;
+  }
+
   // 비밀번호 변경 처리
-  const handleResetPassword = async (values: any) => {
-    if (values.newPassword !== values.confirmPassword) {
+  const handleResetPassword = async ({
+    currentPassword,
+    newPassword,
+    confirmPassword,
+  }: ResetPasswordFormValues) => {
+    if (newPassword !== confirmPassword) {
       message.error("새 비밀번호와 확인 비밀번호가 일치하지 않습니다.");
       return;
     }
@@ -120,8 +137,8 @@ export default function MyPage() {
 
     try {
       const result = await resetPassword(user.id, {
-        currentPassword: values.currentPassword,
-        newPassword: values.newPassword,
+        currentPassword: currentPassword,
+        newPassword: newPassword,
       });
 
       if (result.success) {
@@ -137,9 +154,14 @@ export default function MyPage() {
     }
   };
 
+  interface ConfirmPasswordFormValues {
+    confirmText: string;
+    password: string;
+  }
+
   // 계정 탈퇴 처리
-  const handleDeleteAccount = async (values: any) => {
-    if (values.confirmText !== "계정탈퇴") {
+  const handleDeleteAccount = async ({ confirmText, password }: ConfirmPasswordFormValues) => {
+    if (confirmText !== "계정탈퇴") {
       message.error("'계정탈퇴'를 정확히 입력해주세요.");
       return;
     }
@@ -147,7 +169,7 @@ export default function MyPage() {
     setIsLoading(true);
 
     try {
-      const result = await deleteAccount(user.id, values.password);
+      const result = await deleteAccount(user.id, password);
 
       if (result.success) {
         setUser(null);
