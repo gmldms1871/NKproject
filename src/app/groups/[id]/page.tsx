@@ -12,27 +12,26 @@ import {
   Form,
   Input,
   Select,
-  message,
   Space,
   Avatar,
   Popconfirm,
   Switch,
+  App,
 } from "antd";
 import {
-  ArrowLeftOutlined,
   UserAddOutlined,
   SettingOutlined,
   CrownOutlined,
   DeleteOutlined,
   EditOutlined,
-  MailOutlined,
-  PhoneOutlined,
+  TeamOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
+import { usePageHeader } from "@/contexts/page-header-context";
+import InviteModal from "@/components/InviteModal";
 import {
   getGroupMembers,
   getGroupRoles,
-  inviteToGroup,
   updateMemberRole,
   createGroupRole,
   updateGroupRole,
@@ -47,6 +46,8 @@ export default function GroupDetailPage() {
   const router = useRouter();
   const params = useParams();
   const { user } = useAuth();
+  const { setPageHeader } = usePageHeader();
+  const { message: messageApi } = App.useApp();
   const groupId = params.id as string;
 
   const [members, setMembers] = useState<any[]>([]);
@@ -63,6 +64,24 @@ export default function GroupDetailPage() {
   const [settingsForm] = Form.useForm();
 
   const userRole = members.find((m) => m.users?.id === user?.id)?.group_roles;
+
+  // 페이지 헤더 설정
+  useEffect(() => {
+    if (group) {
+      setPageHeader({
+        title: group.name || "그룹 이름",
+        subtitle: group.description || "그룹 설명",
+        backUrl: "/groups",
+        actions: (
+          <Button icon={<SettingOutlined />} onClick={() => setSettingsModalVisible(true)}>
+            그룹 설정
+          </Button>
+        ),
+      });
+    }
+
+    return () => setPageHeader(null);
+  }, [group, setPageHeader]);
 
   useEffect(() => {
     if (!user) {
@@ -100,33 +119,9 @@ export default function GroupDetailPage() {
         setRoles(rolesResult.data || []);
       }
     } catch (error) {
-      message.error("그룹 정보를 불러오는데 실패했습니다.");
+      messageApi.error("그룹 정보를 불러오는데 실패했습니다.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleInvite = async (values: any) => {
-    if (!user) return;
-
-    try {
-      const result = await inviteToGroup({
-        groupId,
-        inviteeEmail: values.identifier.includes("@") ? values.identifier : undefined,
-        inviteePhone: values.identifier.includes("@") ? undefined : values.identifier,
-        roleId: values.roleId,
-        inviterId: user.id,
-      });
-
-      if (result.success) {
-        message.success("초대가 성공적으로 전송되었습니다!");
-        setInviteModalVisible(false);
-        inviteForm.resetFields();
-      } else {
-        message.error(result.error || "초대 전송에 실패했습니다.");
-      }
-    } catch (error) {
-      message.error("초대 전송 중 오류가 발생했습니다.");
     }
   };
 
@@ -144,15 +139,15 @@ export default function GroupDetailPage() {
       });
 
       if (result.success) {
-        message.success("역할이 성공적으로 생성되었습니다!");
+        messageApi.success("역할이 성공적으로 생성되었습니다!");
         setRoleModalVisible(false);
         roleForm.resetFields();
         loadGroupData();
       } else {
-        message.error(result.error || "역할 생성에 실패했습니다.");
+        messageApi.error(result.error || "역할 생성에 실패했습니다.");
       }
     } catch (error) {
-      message.error("역할 생성 중 오류가 발생했습니다.");
+      messageApi.error("역할 생성 중 오류가 발생했습니다.");
     }
   };
 
@@ -163,14 +158,14 @@ export default function GroupDetailPage() {
       const result = await updateGroupRole(roleId, user.id, values);
 
       if (result.success) {
-        message.success("역할이 성공적으로 수정되었습니다!");
+        messageApi.success("역할이 성공적으로 수정되었습니다!");
         setEditingRole(null);
         loadGroupData();
       } else {
-        message.error(result.error || "역할 수정에 실패했습니다.");
+        messageApi.error(result.error || "역할 수정에 실패했습니다.");
       }
     } catch (error) {
-      message.error("역할 수정 중 오류가 발생했습니다.");
+      messageApi.error("역할 수정 중 오류가 발생했습니다.");
     }
   };
 
@@ -181,13 +176,13 @@ export default function GroupDetailPage() {
       const result = await deleteGroupRole(roleId, user.id);
 
       if (result.success) {
-        message.success("역할이 성공적으로 삭제되었습니다!");
+        messageApi.success("역할이 성공적으로 삭제되었습니다!");
         loadGroupData();
       } else {
-        message.error(result.error || "역할 삭제에 실패했습니다.");
+        messageApi.error(result.error || "역할 삭제에 실패했습니다.");
       }
     } catch (error) {
-      message.error("역할 삭제 중 오류가 발생했습니다.");
+      messageApi.error("역할 삭제 중 오류가 발생했습니다.");
     }
   };
 
@@ -198,13 +193,13 @@ export default function GroupDetailPage() {
       const result = await updateMemberRole(groupId, { memberId, newRoleId }, user.id);
 
       if (result.success) {
-        message.success("멤버 역할이 성공적으로 변경되었습니다!");
+        messageApi.success("멤버 역할이 성공적으로 변경되었습니다!");
         loadGroupData();
       } else {
-        message.error(result.error || "멤버 역할 변경에 실패했습니다.");
+        messageApi.error(result.error || "멤버 역할 변경에 실패했습니다.");
       }
     } catch (error) {
-      message.error("멤버 역할 변경 중 오류가 발생했습니다.");
+      messageApi.error("멤버 역할 변경 중 오류가 발생했습니다.");
     }
   };
 
@@ -381,7 +376,7 @@ export default function GroupDetailPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 py-8">
         <Card>
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">로그인이 필요합니다</h2>
@@ -397,75 +392,20 @@ export default function GroupDetailPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* 헤더 */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/groups")}>
-                뒤로 가기
-              </Button>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">{group?.name || "그룹 이름"}</h1>
-                <p className="text-gray-600 mt-2">{group?.description || "그룹 설명"}</p>
-              </div>
-            </div>
-            <Space>
-              <Button icon={<SettingOutlined />} onClick={() => setSettingsModalVisible(true)}>
-                그룹 설정
-              </Button>
-            </Space>
-          </div>
-        </div>
-
         {/* 탭 컨텐츠 */}
         <Card>
           <Tabs defaultActiveKey="members" items={tabItems} />
         </Card>
 
-        {/* 멤버 초대 모달 */}
-        <Modal
-          title="멤버 초대"
+        {/* 새로운 초대 모달 */}
+        <InviteModal
           open={inviteModalVisible}
-          onCancel={() => {
-            setInviteModalVisible(false);
-            inviteForm.resetFields();
-          }}
-          footer={null}
-          destroyOnClose
-        >
-          <Form form={inviteForm} layout="vertical" onFinish={handleInvite}>
-            <Form.Item
-              name="identifier"
-              label="이메일 또는 전화번호"
-              rules={[{ required: true, message: "이메일 또는 전화번호를 입력해주세요!" }]}
-            >
-              <Input placeholder="example@email.com 또는 010-1234-5678" prefix={<MailOutlined />} />
-            </Form.Item>
-
-            <Form.Item
-              name="roleId"
-              label="역할"
-              rules={[{ required: true, message: "역할을 선택해주세요!" }]}
-            >
-              <Select placeholder="초대할 역할을 선택하세요">
-                {roles.map((role) => (
-                  <Select.Option key={role.id} value={role.id}>
-                    {role.name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-
-            <Form.Item>
-              <Space>
-                <Button onClick={() => setInviteModalVisible(false)}>취소</Button>
-                <Button type="primary" htmlType="submit">
-                  초대 보내기
-                </Button>
-              </Space>
-            </Form.Item>
-          </Form>
-        </Modal>
+          onCancel={() => setInviteModalVisible(false)}
+          groupId={groupId}
+          roles={roles}
+          inviterId={user.id}
+          onSuccess={loadGroupData}
+        />
 
         {/* 역할 생성 모달 */}
         <Modal
@@ -476,7 +416,7 @@ export default function GroupDetailPage() {
             roleForm.resetFields();
           }}
           footer={null}
-          destroyOnClose
+          destroyOnHidden
         >
           <Form form={roleForm} layout="vertical" onFinish={handleCreateRole}>
             <Form.Item
@@ -487,35 +427,23 @@ export default function GroupDetailPage() {
               <Input placeholder="예: 매니저, 에디터" />
             </Form.Item>
 
-            <Form.Item name="can_invite" valuePropName="checked">
-              <Space>
-                <Switch />
-                <span>멤버 초대 권한</span>
-              </Space>
+            <Form.Item name="can_invite" valuePropName="checked" label="멤버 초대 권한">
+              <Switch />
             </Form.Item>
 
-            <Form.Item name="can_manage_roles" valuePropName="checked">
-              <Space>
-                <Switch />
-                <span>역할 관리 권한</span>
-              </Space>
+            <Form.Item name="can_manage_roles" valuePropName="checked" label="역할 관리 권한">
+              <Switch />
             </Form.Item>
 
-            <Form.Item name="can_create_form" valuePropName="checked">
-              <Space>
-                <Switch />
-                <span>양식 생성 권한</span>
-              </Space>
+            <Form.Item name="can_create_form" valuePropName="checked" label="양식 생성 권한">
+              <Switch />
             </Form.Item>
 
-            <Form.Item name="can_delete_form" valuePropName="checked">
-              <Space>
-                <Switch />
-                <span>양식 삭제 권한</span>
-              </Space>
+            <Form.Item name="can_delete_form" valuePropName="checked" label="양식 삭제 권한">
+              <Switch />
             </Form.Item>
 
-            <Form.Item>
+            <Form.Item className="mb-0 mt-6">
               <Space>
                 <Button onClick={() => setRoleModalVisible(false)}>취소</Button>
                 <Button type="primary" htmlType="submit">
@@ -532,43 +460,36 @@ export default function GroupDetailPage() {
           open={!!editingRole}
           onCancel={() => setEditingRole(null)}
           footer={null}
-          destroyOnClose
+          destroyOnHidden
         >
           {editingRole && (
             <Form
               layout="vertical"
-              initialValues={editingRole}
+              initialValues={{
+                can_invite: editingRole.can_invite,
+                can_manage_roles: editingRole.can_manage_roles,
+                can_create_form: editingRole.can_create_form,
+                can_delete_form: editingRole.can_delete_form,
+              }}
               onFinish={(values) => handleUpdateRole(editingRole.id, values)}
             >
-              <Form.Item name="can_invite" valuePropName="checked">
-                <Space>
-                  <Switch />
-                  <span>멤버 초대 권한</span>
-                </Space>
+              <Form.Item name="can_invite" valuePropName="checked" label="멤버 초대 권한">
+                <Switch />
               </Form.Item>
 
-              <Form.Item name="can_manage_roles" valuePropName="checked">
-                <Space>
-                  <Switch />
-                  <span>역할 관리 권한</span>
-                </Space>
+              <Form.Item name="can_manage_roles" valuePropName="checked" label="역할 관리 권한">
+                <Switch />
               </Form.Item>
 
-              <Form.Item name="can_create_form" valuePropName="checked">
-                <Space>
-                  <Switch />
-                  <span>양식 생성 권한</span>
-                </Space>
+              <Form.Item name="can_create_form" valuePropName="checked" label="양식 생성 권한">
+                <Switch />
               </Form.Item>
 
-              <Form.Item name="can_delete_form" valuePropName="checked">
-                <Space>
-                  <Switch />
-                  <span>양식 삭제 권한</span>
-                </Space>
+              <Form.Item name="can_delete_form" valuePropName="checked" label="양식 삭제 권한">
+                <Switch />
               </Form.Item>
 
-              <Form.Item>
+              <Form.Item className="mb-0 mt-6">
                 <Space>
                   <Button onClick={() => setEditingRole(null)}>취소</Button>
                   <Button type="primary" htmlType="submit">

@@ -1,9 +1,10 @@
 import type React from "react";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { ConfigProvider } from "antd";
+import { ConfigProvider, App } from "antd";
 import koKR from "antd/locale/ko_KR";
 import { AuthProvider } from "@/contexts/auth-context";
+import { PageHeaderProvider } from "@/contexts/page-header-context";
 import { NavigationWrapper } from "@/components/NavigationWrapper";
 import "./globals.css";
 
@@ -31,9 +32,13 @@ export default function RootLayout({
             },
           }}
         >
-          <AuthProvider>
-            <NavigationWrapper>{children}</NavigationWrapper>
-          </AuthProvider>
+          <App>
+            <AuthProvider>
+              <PageHeaderProvider>
+                <NavigationWrapper>{children}</NavigationWrapper>
+              </PageHeaderProvider>
+            </AuthProvider>
+          </App>
         </ConfigProvider>
       </body>
     </html>

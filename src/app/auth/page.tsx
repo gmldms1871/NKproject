@@ -2,20 +2,31 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Tabs, Button, Input, Form, Select, DatePicker, message } from "antd";
+import { Card, Tabs, Button, Input, Form, Select, DatePicker, App } from "antd";
 import { UserOutlined, LockOutlined, MailOutlined, PhoneOutlined } from "@ant-design/icons";
 import { signUp, signIn, EDUCATION_LEVELS } from "@/lib/users";
 import { useAuth } from "@/contexts/auth-context";
+import { formatPhoneNumber } from "@/lib/phone-utils";
 import dayjs from "dayjs";
 
 export default function AuthPage() {
   const router = useRouter();
   const { setUser } = useAuth();
+  const { message: messageApi } = App.useApp();
   const [isLoading, setIsLoading] = useState(false);
   const [signUpForm] = Form.useForm();
   const [signInForm] = Form.useForm();
 
-  // 회원가입 처리
+  // 전화번호 자동 포맷팅 핸들러
+  const handlePhoneChange =
+    (formName: "signin" | "signup") => (e: React.ChangeEvent<HTMLInputElement>) => {
+      const formatted = formatPhoneNumber(e.target.value);
+      if (formName === "signin") {
+        signInForm.setFieldValue("identifier", formatted);
+      } else {
+        signUpForm.setFieldValue("phone", formatted);
+      }
+    };
   const handleSignUp = async (values: any) => {
     setIsLoading(true);
 
@@ -31,13 +42,13 @@ export default function AuthPage() {
       });
 
       if (result.success) {
-        message.success("회원가입이 완료되었습니다! 로그인해주세요.");
+        messageApi.success("회원가입이 완료되었습니다! 로그인해주세요.");
         signUpForm.resetFields();
       } else {
-        message.error(result.error || "회원가입에 실패했습니다.");
+        messageApi.error(result.error || "회원가입에 실패했습니다.");
       }
     } catch (error) {
-      message.error("회원가입 중 오류가 발생했습니다.");
+      messageApi.error("회원가입 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -55,13 +66,13 @@ export default function AuthPage() {
 
       if (result.success && result.data) {
         setUser(result.data);
-        message.success(`환영합니다, ${result.data.name}님!`);
+        messageApi.success(`환영합니다, ${result.data.name}님!`);
         router.push("/mypage");
       } else {
-        message.error(result.error || "로그인에 실패했습니다.");
+        messageApi.error(result.error || "로그인에 실패했습니다.");
       }
     } catch (error) {
-      message.error("로그인 중 오류가 발생했습니다.");
+      messageApi.error("로그인 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -84,7 +95,18 @@ export default function AuthPage() {
             label="이메일 또는 전화번호"
             rules={[{ required: true, message: "이메일 또는 전화번호를 입력해주세요!" }]}
           >
-            <Input prefix={<UserOutlined />} placeholder="example@email.com 또는 010-1234-5678" />
+            <Input
+              prefix={<UserOutlined />}
+              placeholder="example@email.com 또는 010-1234-5678"
+              maxLength={50}
+              onChange={(e) => {
+                const value = e.target.value;
+                // 전화번호인 경우 자동 포맷팅
+                if (value && !value.includes("@") && /^\d/.test(value)) {
+                  handlePhoneChange("signin")(e);
+                }
+              }}
+            />
           </Form.Item>
 
           <Form.Item

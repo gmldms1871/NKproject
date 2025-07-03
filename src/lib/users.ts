@@ -93,8 +93,8 @@ export const signUp = async (userData: SignUpRequest): Promise<ApiResponse<User>
       return { success: false, error: "올바른 교육 수준을 선택해주세요." };
     }
 
-    // 이메일 중복 확인
-    const { data: existingUserByEmail } = await supabase
+    // Admin 클라이언트로 중복 확인 (RLS 우회)
+    const { data: existingUserByEmail } = await supabaseAdmin
       .from("users")
       .select("id")
       .eq("email", userData.email)
@@ -106,7 +106,7 @@ export const signUp = async (userData: SignUpRequest): Promise<ApiResponse<User>
     }
 
     // 전화번호 중복 확인
-    const { data: existingUserByPhone } = await supabase
+    const { data: existingUserByPhone } = await supabaseAdmin
       .from("users")
       .select("id")
       .eq("phone", userData.phone)
@@ -118,7 +118,7 @@ export const signUp = async (userData: SignUpRequest): Promise<ApiResponse<User>
     }
 
     // 닉네임 중복 확인
-    const { data: existingUserByNickname } = await supabase
+    const { data: existingUserByNickname } = await supabaseAdmin
       .from("users")
       .select("id")
       .eq("nickname", userData.nickname)
@@ -133,8 +133,8 @@ export const signUp = async (userData: SignUpRequest): Promise<ApiResponse<User>
     const saltRounds = 12;
     const hashedPassword = await bcrypt.hash(userData.password, saltRounds);
 
-    // 사용자 생성
-    const { data: newUser, error } = await supabase
+    // Admin 클라이언트로 사용자 생성 (RLS 우회)
+    const { data: newUser, error } = await supabaseAdmin
       .from("users")
       .insert({
         email: userData.email,
@@ -149,10 +149,13 @@ export const signUp = async (userData: SignUpRequest): Promise<ApiResponse<User>
       .single();
 
     if (error) {
+      console.error("Sign up error:", error);
       return { success: false, error: "회원가입 중 오류가 발생했습니다." };
     }
 
-    return { success: true, data: newUser };
+    // 비밀번호 제외하고 반환
+    const { password, ...userWithoutPassword } = newUser;
+    return { success: true, data: userWithoutPassword as User };
   } catch (error) {
     console.error("Sign up error:", error);
     return { success: false, error: "서버 오류가 발생했습니다." };
@@ -172,7 +175,7 @@ export const signIn = async (credentials: SignInRequest): Promise<ApiResponse<Us
     // 이메일 또는 전화번호로 사용자 찾기
     const isEmail = validateEmail(credentials.identifier);
 
-    let query = supabase.from("users").select("*").is("deleted_at", null);
+    let query = supabaseAdmin.from("users").select("*").is("deleted_at", null);
 
     if (isEmail) {
       query = query.eq("email", credentials.identifier);
@@ -239,7 +242,7 @@ export const resetPassword = async (
     }
 
     // 현재 사용자 정보 조회
-    const { data: user, error } = await supabase
+    const { data: user, error } = await supabaseAdmin
       .from("users")
       .select("password")
       .eq("id", userId)
@@ -265,7 +268,7 @@ export const resetPassword = async (
     const hashedNewPassword = await bcrypt.hash(passwordData.newPassword, saltRounds);
 
     // 비밀번호 업데이트
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
       .from("users")
       .update({ password: hashedNewPassword })
       .eq("id", userId);
@@ -292,7 +295,7 @@ export const deleteAccount = async (userId: string, password: string): Promise<A
     }
 
     // 현재 사용자 정보 조회
-    const { data: user, error } = await supabase
+    const { data: user, error } = await supabaseAdmin
       .from("users")
       .select("*")
       .eq("id", userId)
@@ -312,7 +315,7 @@ export const deleteAccount = async (userId: string, password: string): Promise<A
 
     // 계정 탈퇴 처리 (정보 마스킹)
     const currentDate = new Date().toISOString();
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await supabaseAdmin
       .from("users")
       .update({
         email: "알수없음",
@@ -349,7 +352,7 @@ export const updateProfile = async (
 
     if (updateData.nickname !== undefined) {
       // 닉네임 중복 확인
-      const { data: existingUser } = await supabase
+      const { data: existingUser } = await supabaseAdmin
         .from("users")
         .select("id")
         .eq("nickname", updateData.nickname)
@@ -381,7 +384,7 @@ export const updateProfile = async (
     }
 
     // 정보 업데이트
-    const { data: updatedUser, error } = await supabase
+    const { data: updatedUser, error } = await supabaseAdmin
       .from("users")
       .update(allowedUpdates)
       .eq("id", userId)
@@ -393,7 +396,9 @@ export const updateProfile = async (
       return { success: false, error: "정보 수정 중 오류가 발생했습니다." };
     }
 
-    return { success: true, data: updatedUser };
+    // 비밀번호 제외하고 반환
+    const { password, ...userWithoutPassword } = updatedUser;
+    return { success: true, data: userWithoutPassword as User };
   } catch (error) {
     console.error("Update profile error:", error);
     return { success: false, error: "서버 오류가 발생했습니다." };
@@ -405,7 +410,7 @@ export const updateProfile = async (
  */
 export const getUser = async (userId: string): Promise<ApiResponse<User>> => {
   try {
-    const { data: user, error } = await supabase
+    const { data: user, error } = await supabaseAdmin
       .from("users")
       .select("*")
       .eq("id", userId)
@@ -422,5 +427,79 @@ export const getUser = async (userId: string): Promise<ApiResponse<User>> => {
   } catch (error) {
     console.error("Get user error:", error);
     return { success: false, error: "사용자 정보 조회 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 사용자 검색 (닉네임, 이메일, 전화번호로 검색)
+ */
+export interface SearchUserResult {
+  id: string;
+  name: string;
+  nickname: string;
+  email: string;
+  phone: string;
+}
+
+export const searchUsers = async (query: string): Promise<ApiResponse<SearchUserResult[]>> => {
+  try {
+    if (!query || query.trim().length < 2) {
+      return { success: false, error: "검색어는 2자리 이상 입력해주세요." };
+    }
+
+    const searchTerm = query.trim();
+
+    // 이메일, 전화번호, 닉네임으로 검색
+    const { data: users, error } = await supabaseAdmin
+      .from("users")
+      .select("id, name, nickname, email, phone")
+      .is("deleted_at", null)
+      .or(`nickname.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`)
+      .limit(10);
+
+    if (error) {
+      console.error("Search users error:", error);
+      return { success: false, error: "사용자 검색에 실패했습니다." };
+    }
+
+    return { success: true, data: users || [] };
+  } catch (error) {
+    console.error("Search users error:", error);
+    return { success: false, error: "사용자 검색 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 이메일 또는 전화번호로 사용자 찾기
+ */
+export const findUserByIdentifier = async (identifier: string): Promise<ApiResponse<User>> => {
+  try {
+    if (!identifier || identifier.trim() === "") {
+      return { success: false, error: "이메일 또는 전화번호를 입력해주세요." };
+    }
+
+    const isEmail = validateEmail(identifier);
+
+    let query = supabaseAdmin
+      .from("users")
+      .select("id, name, nickname, email, phone")
+      .is("deleted_at", null);
+
+    if (isEmail) {
+      query = query.eq("email", identifier);
+    } else {
+      query = query.eq("phone", identifier);
+    }
+
+    const { data: user, error } = await query.single();
+
+    if (error || !user) {
+      return { success: false, error: "해당 사용자를 찾을 수 없습니다." };
+    }
+
+    return { success: true, data: user as User };
+  } catch (error) {
+    console.error("Find user by identifier error:", error);
+    return { success: false, error: "사용자 검색 중 오류가 발생했습니다." };
   }
 };

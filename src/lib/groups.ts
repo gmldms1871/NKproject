@@ -79,7 +79,7 @@ export const createGroup = async (
     }
 
     // 그룹 이름 중복 검사
-    const { data: existingGroup } = await supabase
+    const { data: existingGroup } = await supabaseAdmin
       .from("groups")
       .select("id")
       .eq("name", groupData.name.trim())
@@ -90,7 +90,7 @@ export const createGroup = async (
     }
 
     // 그룹 생성
-    const { data: newGroup, error: groupError } = await supabase
+    const { data: newGroup, error: groupError } = await supabaseAdmin
       .from("groups")
       .insert({
         name: groupData.name.trim(),
@@ -106,7 +106,7 @@ export const createGroup = async (
     }
 
     // Owner 역할 생성 (모든 권한 true)
-    const { data: ownerRole, error: ownerRoleError } = await supabase
+    const { data: ownerRole, error: ownerRoleError } = await supabaseAdmin
       .from("group_roles")
       .insert({
         group_id: newGroup.id,
@@ -121,12 +121,12 @@ export const createGroup = async (
 
     if (ownerRoleError || !ownerRole) {
       // 그룹 생성 롤백
-      await supabase.from("groups").delete().eq("id", newGroup.id);
+      await supabaseAdmin.from("groups").delete().eq("id", newGroup.id);
       return { success: false, error: "Owner 역할 생성에 실패했습니다." };
     }
 
     // 기본 역할 생성 (모든 권한 false)
-    const { error: defaultRoleError } = await supabase.from("group_roles").insert({
+    const { error: defaultRoleError } = await supabaseAdmin.from("group_roles").insert({
       group_id: newGroup.id,
       name: "member",
       can_invite: false,
@@ -137,13 +137,13 @@ export const createGroup = async (
 
     if (defaultRoleError) {
       // 그룹 및 owner 역할 롤백
-      await supabase.from("group_roles").delete().eq("id", ownerRole.id);
-      await supabase.from("groups").delete().eq("id", newGroup.id);
+      await supabaseAdmin.from("group_roles").delete().eq("id", ownerRole.id);
+      await supabaseAdmin.from("groups").delete().eq("id", newGroup.id);
       return { success: false, error: "기본 역할 생성에 실패했습니다." };
     }
 
     // 생성자를 그룹 멤버로 추가 (owner 역할)
-    const { error: memberError } = await supabase.from("group_member").insert({
+    const { error: memberError } = await supabaseAdmin.from("group_member").insert({
       user_id: userId,
       group_id: newGroup.id,
       group_role_id: ownerRole.id,
@@ -151,8 +151,8 @@ export const createGroup = async (
 
     if (memberError) {
       // 모든 것 롤백
-      await supabase.from("group_roles").delete().eq("group_id", newGroup.id);
-      await supabase.from("groups").delete().eq("id", newGroup.id);
+      await supabaseAdmin.from("group_roles").delete().eq("group_id", newGroup.id);
+      await supabaseAdmin.from("groups").delete().eq("id", newGroup.id);
       return { success: false, error: "그룹 멤버 추가에 실패했습니다." };
     }
 
@@ -168,7 +168,7 @@ export const createGroup = async (
  */
 export const getMyGroups = async (userId: string): Promise<ApiResponse<Group[]>> => {
   try {
-    const { data: groups, error } = await supabase
+    const { data: groups, error } = await supabaseAdmin
       .from("group_member")
       .select(
         `
@@ -194,7 +194,7 @@ export const getMyGroups = async (userId: string): Promise<ApiResponse<Group[]>>
  */
 export const getMyCreatedGroups = async (userId: string): Promise<ApiResponse<Group[]>> => {
   try {
-    const { data: groups, error } = await supabase
+    const { data: groups, error } = await supabaseAdmin
       .from("groups")
       .select("*")
       .eq("owner_id", userId)
@@ -221,7 +221,7 @@ export const updateGroup = async (
 ): Promise<ApiResponse<Group>> => {
   try {
     // 권한 확인 (owner만 가능)
-    const { data: group } = await supabase
+    const { data: group } = await supabaseAdmin
       .from("groups")
       .select("owner_id")
       .eq("id", groupId)
@@ -233,7 +233,7 @@ export const updateGroup = async (
 
     // 이름 변경 시 중복 검사
     if (updateData.name) {
-      const { data: existingGroup } = await supabase
+      const { data: existingGroup } = await supabaseAdmin
         .from("groups")
         .select("id")
         .eq("name", updateData.name.trim())
@@ -245,7 +245,7 @@ export const updateGroup = async (
       }
     }
 
-    const { data: updatedGroup, error } = await supabase
+    const { data: updatedGroup, error } = await supabaseAdmin
       .from("groups")
       .update({
         name: updateData.name?.trim(),
@@ -273,7 +273,7 @@ export const updateGroup = async (
 export const deleteGroup = async (groupId: string, userId: string): Promise<ApiResponse> => {
   try {
     // 권한 확인 (owner만 가능)
-    const { data: group } = await supabase
+    const { data: group } = await supabaseAdmin
       .from("groups")
       .select("owner_id")
       .eq("id", groupId)
@@ -284,7 +284,7 @@ export const deleteGroup = async (groupId: string, userId: string): Promise<ApiR
     }
 
     // 관련 데이터 삭제 (cascade)
-    const { error } = await supabase.from("groups").delete().eq("id", groupId);
+    const { error } = await supabaseAdmin.from("groups").delete().eq("id", groupId);
 
     if (error) {
       return { success: false, error: "그룹 삭제에 실패했습니다." };
@@ -303,7 +303,7 @@ export const deleteGroup = async (groupId: string, userId: string): Promise<ApiR
 export const leaveGroup = async (groupId: string, userId: string): Promise<ApiResponse> => {
   try {
     // Owner는 나갈 수 없음
-    const { data: group } = await supabase
+    const { data: group } = await supabaseAdmin
       .from("groups")
       .select("owner_id")
       .eq("id", groupId)
@@ -316,7 +316,7 @@ export const leaveGroup = async (groupId: string, userId: string): Promise<ApiRe
       };
     }
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("group_member")
       .delete()
       .eq("group_id", groupId)
@@ -343,7 +343,7 @@ export const transferGroupOwnership = async (
 ): Promise<ApiResponse> => {
   try {
     // 현재 소유자인지 확인
-    const { data: group } = await supabase
+    const { data: group } = await supabaseAdmin
       .from("groups")
       .select("owner_id")
       .eq("id", groupId)
@@ -354,7 +354,7 @@ export const transferGroupOwnership = async (
     }
 
     // 새 소유자가 그룹 멤버인지 확인
-    const { data: newOwnerMember } = await supabase
+    const { data: newOwnerMember } = await supabaseAdmin
       .from("group_member")
       .select("*")
       .eq("group_id", groupId)
@@ -366,7 +366,10 @@ export const transferGroupOwnership = async (
     }
 
     // 역할 조회
-    const { data: roles } = await supabase.from("group_roles").select("*").eq("group_id", groupId);
+    const { data: roles } = await supabaseAdmin
+      .from("group_roles")
+      .select("*")
+      .eq("group_id", groupId);
 
     const ownerRole = roles?.find((role) => role.name === "owner");
     const memberRole = roles?.find((role) => role.name === "member");
@@ -377,7 +380,7 @@ export const transferGroupOwnership = async (
 
     // 트랜잭션: 소유권 이전
     // 1. 그룹 소유자 변경
-    const { error: groupError } = await supabase
+    const { error: groupError } = await supabaseAdmin
       .from("groups")
       .update({ owner_id: newOwnerId })
       .eq("id", groupId);
@@ -387,7 +390,7 @@ export const transferGroupOwnership = async (
     }
 
     // 2. 새 소유자 역할을 owner로 변경
-    const { error: newOwnerError } = await supabase
+    const { error: newOwnerError } = await supabaseAdmin
       .from("group_member")
       .update({ group_role_id: ownerRole.id })
       .eq("group_id", groupId)
@@ -395,12 +398,12 @@ export const transferGroupOwnership = async (
 
     if (newOwnerError) {
       // 롤백
-      await supabase.from("groups").update({ owner_id: currentOwnerId }).eq("id", groupId);
+      await supabaseAdmin.from("groups").update({ owner_id: currentOwnerId }).eq("id", groupId);
       return { success: false, error: "새 소유자 역할 변경에 실패했습니다." };
     }
 
     // 3. 기존 소유자 역할을 member로 변경
-    const { error: oldOwnerError } = await supabase
+    const { error: oldOwnerError } = await supabaseAdmin
       .from("group_member")
       .update({ group_role_id: memberRole.id })
       .eq("group_id", groupId)
@@ -408,12 +411,12 @@ export const transferGroupOwnership = async (
 
     if (oldOwnerError) {
       // 롤백
-      await supabase
+      await supabaseAdmin
         .from("group_member")
         .update({ group_role_id: ownerRole.id })
         .eq("group_id", groupId)
         .eq("user_id", newOwnerId);
-      await supabase.from("groups").update({ owner_id: currentOwnerId }).eq("id", groupId);
+      await supabaseAdmin.from("groups").update({ owner_id: currentOwnerId }).eq("id", groupId);
       return { success: false, error: "기존 소유자 역할 변경에 실패했습니다." };
     }
 
@@ -434,7 +437,7 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
     }
 
     // 초대권한 확인
-    const { data: member } = await supabase
+    const { data: member } = await supabaseAdmin
       .from("group_member")
       .select(
         `
@@ -450,7 +453,7 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
     }
 
     // 그룹 정보 조회
-    const { data: group } = await supabase
+    const { data: group } = await supabaseAdmin
       .from("groups")
       .select("name, description")
       .eq("id", inviteData.groupId)
@@ -461,7 +464,7 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
     }
 
     // 초대자 정보 조회
-    const { data: inviter } = await supabase
+    const { data: inviter } = await supabaseAdmin
       .from("users")
       .select("nickname")
       .eq("id", inviteData.inviterId)
@@ -471,7 +474,7 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 7); // 7일 후 만료
 
-    const { data: invitation, error: inviteError } = await supabase
+    const { data: invitation, error: inviteError } = await supabaseAdmin
       .from("invitations")
       .insert({
         group_id: inviteData.groupId,
@@ -489,7 +492,7 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
     }
 
     // 초대받을 사용자 찾기
-    let query = supabase.from("users").select("id, nickname");
+    let query = supabaseAdmin.from("users").select("id, nickname");
 
     if (inviteData.inviteeEmail) {
       query = query.eq("email", inviteData.inviteeEmail);
@@ -501,7 +504,7 @@ export const inviteToGroup = async (inviteData: InviteToGroupRequest): Promise<A
 
     // 사용자가 존재하면 알림 생성
     if (invitee) {
-      await supabase.from("notifications").insert({
+      await supabaseAdmin.from("notifications").insert({
         target_id: invitee.id,
         creator_id: inviteData.inviterId,
         group_id: inviteData.groupId,
@@ -530,7 +533,7 @@ export const acceptGroupInvitation = async (
 ): Promise<ApiResponse> => {
   try {
     // 초대 정보 조회
-    const { data: invitation } = await supabase
+    const { data: invitation } = await supabaseAdmin
       .from("invitations")
       .select("*")
       .eq("id", invitationId)
@@ -550,7 +553,7 @@ export const acceptGroupInvitation = async (
       return { success: false, error: "초대의 그룹 정보가 올바르지 않습니다." };
     }
 
-    const { data: existingMember } = await supabase
+    const { data: existingMember } = await supabaseAdmin
       .from("group_member")
       .select("id")
       .eq("group_id", invitation.group_id)
@@ -566,7 +569,7 @@ export const acceptGroupInvitation = async (
       return { success: false, error: "초대의 역할 정보가 올바르지 않습니다." };
     }
 
-    const { error } = await supabase.from("group_member").insert({
+    const { error } = await supabaseAdmin.from("group_member").insert({
       user_id: userId,
       group_id: invitation.group_id,
       group_role_id: invitation.group_roles_id,
@@ -577,10 +580,10 @@ export const acceptGroupInvitation = async (
     }
 
     // 초대 삭제
-    await supabase.from("invitations").delete().eq("id", invitationId);
+    await supabaseAdmin.from("invitations").delete().eq("id", invitationId);
 
     // 관련 알림을 읽음 처리
-    await supabase
+    await supabaseAdmin
       .from("notifications")
       .update({ is_read: true })
       .eq("related_id", invitationId)
@@ -602,14 +605,14 @@ export const rejectGroupInvitation = async (
 ): Promise<ApiResponse> => {
   try {
     // 초대 삭제
-    const { error } = await supabase.from("invitations").delete().eq("id", invitationId);
+    const { error } = await supabaseAdmin.from("invitations").delete().eq("id", invitationId);
 
     if (error) {
       return { success: false, error: "초대 거절에 실패했습니다." };
     }
 
     // 관련 알림을 읽음 처리
-    await supabase
+    await supabaseAdmin
       .from("notifications")
       .update({ is_read: true })
       .eq("related_id", invitationId)
@@ -627,7 +630,7 @@ export const rejectGroupInvitation = async (
  */
 export const getReceivedInvitations = async (userId: string): Promise<ApiResponse<any[]>> => {
   try {
-    const { data: user } = await supabase
+    const { data: user } = await supabaseAdmin
       .from("users")
       .select("email, phone")
       .eq("id", userId)
@@ -652,7 +655,7 @@ export const getReceivedInvitations = async (userId: string): Promise<ApiRespons
       return { success: false, error: "이메일 또는 전화번호가 등록되지 않았습니다." };
     }
 
-    const { data: invitations, error } = await supabase
+    const { data: invitations, error } = await supabaseAdmin
       .from("invitations")
       .select(
         `
@@ -685,7 +688,7 @@ export const createGroupRole = async (
 ): Promise<ApiResponse<GroupRole>> => {
   try {
     // 권한 확인 (can_manage_roles)
-    const { data: member } = await supabase
+    const { data: member } = await supabaseAdmin
       .from("group_member")
       .select(
         `
@@ -701,7 +704,7 @@ export const createGroupRole = async (
     }
 
     // 역할명 중복 확인
-    const { data: existingRole } = await supabase
+    const { data: existingRole } = await supabaseAdmin
       .from("group_roles")
       .select("id")
       .eq("group_id", roleData.groupId)
@@ -712,7 +715,7 @@ export const createGroupRole = async (
       return { success: false, error: "이미 존재하는 역할명입니다." };
     }
 
-    const { data: newRole, error } = await supabase
+    const { data: newRole, error } = await supabaseAdmin
       .from("group_roles")
       .insert({
         group_id: roleData.groupId,
@@ -726,6 +729,7 @@ export const createGroupRole = async (
       .single();
 
     if (error) {
+      console.error("Create role error:", error);
       return { success: false, error: "역할 생성에 실패했습니다." };
     }
 
@@ -746,7 +750,7 @@ export const updateGroupRole = async (
 ): Promise<ApiResponse<GroupRole>> => {
   try {
     // 역할 정보 조회
-    const { data: role } = await supabase
+    const { data: role } = await supabaseAdmin
       .from("group_roles")
       .select("group_id, name")
       .eq("id", roleId)
@@ -762,7 +766,7 @@ export const updateGroupRole = async (
     }
 
     // 권한 확인
-    const { data: member } = await supabase
+    const { data: member } = await supabaseAdmin
       .from("group_member")
       .select(
         `
@@ -777,7 +781,7 @@ export const updateGroupRole = async (
       return { success: false, error: "역할 관리 권한이 없습니다." };
     }
 
-    const { data: updatedRole, error } = await supabase
+    const { data: updatedRole, error } = await supabaseAdmin
       .from("group_roles")
       .update(updateData)
       .eq("id", roleId)
@@ -785,6 +789,7 @@ export const updateGroupRole = async (
       .single();
 
     if (error) {
+      console.error("Update role error:", error);
       return { success: false, error: "역할 수정에 실패했습니다." };
     }
 
@@ -801,7 +806,7 @@ export const updateGroupRole = async (
 export const deleteGroupRole = async (roleId: string, userId: string): Promise<ApiResponse> => {
   try {
     // 역할 정보 조회
-    const { data: role } = await supabase
+    const { data: role } = await supabaseAdmin
       .from("group_roles")
       .select("group_id, name")
       .eq("id", roleId)
@@ -817,7 +822,7 @@ export const deleteGroupRole = async (roleId: string, userId: string): Promise<A
     }
 
     // 권한 확인
-    const { data: member } = await supabase
+    const { data: member } = await supabaseAdmin
       .from("group_member")
       .select(
         `
@@ -833,7 +838,7 @@ export const deleteGroupRole = async (roleId: string, userId: string): Promise<A
     }
 
     // 해당 역할을 사용하는 멤버가 있는지 확인
-    const { data: members } = await supabase
+    const { data: members } = await supabaseAdmin
       .from("group_member")
       .select("id")
       .eq("group_role_id", roleId);
@@ -842,7 +847,7 @@ export const deleteGroupRole = async (roleId: string, userId: string): Promise<A
       return { success: false, error: "해당 역할을 사용하는 멤버가 있어 삭제할 수 없습니다." };
     }
 
-    const { error } = await supabase.from("group_roles").delete().eq("id", roleId);
+    const { error } = await supabaseAdmin.from("group_roles").delete().eq("id", roleId);
 
     if (error) {
       return { success: false, error: "역할 삭제에 실패했습니다." };
@@ -865,7 +870,7 @@ export const updateMemberRole = async (
 ): Promise<ApiResponse> => {
   try {
     // 권한 확인
-    const { data: member } = await supabase
+    const { data: member } = await supabaseAdmin
       .from("group_member")
       .select(
         `
@@ -880,12 +885,13 @@ export const updateMemberRole = async (
       return { success: false, error: "역할 관리 권한이 없습니다." };
     }
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("group_member")
       .update({ group_role_id: updateData.newRoleId })
       .eq("id", updateData.memberId);
 
     if (error) {
+      console.error("Update member role error:", error);
       return { success: false, error: "멤버 역할 변경에 실패했습니다." };
     }
 
@@ -905,7 +911,7 @@ export const getGroupMembers = async (
 ): Promise<ApiResponse<any[]>> => {
   try {
     // 그룹 멤버인지 확인
-    const { data: memberCheck } = await supabase
+    const { data: memberCheck } = await supabaseAdmin
       .from("group_member")
       .select("id")
       .eq("group_id", groupId)
@@ -916,7 +922,7 @@ export const getGroupMembers = async (
       return { success: false, error: "그룹 멤버만 조회할 수 있습니다." };
     }
 
-    const { data: members, error } = await supabase
+    const { data: members, error } = await supabaseAdmin
       .from("group_member")
       .select(
         `
@@ -929,6 +935,7 @@ export const getGroupMembers = async (
       .order("joined_at", { ascending: true });
 
     if (error) {
+      console.error("Get group members error:", error);
       return { success: false, error: "멤버 조회에 실패했습니다." };
     }
 
@@ -948,7 +955,7 @@ export const getGroupRoles = async (
 ): Promise<ApiResponse<GroupRole[]>> => {
   try {
     // 그룹 멤버인지 확인
-    const { data: memberCheck } = await supabase
+    const { data: memberCheck } = await supabaseAdmin
       .from("group_member")
       .select("id")
       .eq("group_id", groupId)
@@ -959,13 +966,14 @@ export const getGroupRoles = async (
       return { success: false, error: "그룹 멤버만 조회할 수 있습니다." };
     }
 
-    const { data: roles, error } = await supabase
+    const { data: roles, error } = await supabaseAdmin
       .from("group_roles")
       .select("*")
       .eq("group_id", groupId)
       .order("created_at", { ascending: true });
 
     if (error) {
+      console.error("Get group roles error:", error);
       return { success: false, error: "역할 조회에 실패했습니다." };
     }
 

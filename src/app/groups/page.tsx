@@ -15,6 +15,7 @@ import {
   Avatar,
   Space,
   Tabs,
+  App,
 } from "antd";
 import {
   PlusOutlined,
@@ -24,6 +25,7 @@ import {
   UserOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
+import { usePageHeader } from "@/contexts/page-header-context";
 import { getMyGroups, getMyCreatedGroups, createGroup } from "@/lib/groups";
 
 interface Group {
@@ -38,12 +40,34 @@ interface Group {
 export default function GroupsPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const { setPageHeader } = usePageHeader();
+  const { message: messageApi } = App.useApp();
   const [myGroups, setMyGroups] = useState<Group[]>([]);
   const [myCreatedGroups, setMyCreatedGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [form] = Form.useForm();
+
+  // 페이지 헤더 설정
+  useEffect(() => {
+    setPageHeader({
+      title: "그룹 관리",
+      subtitle: "그룹을 만들고 관리하세요",
+      actions: (
+        <Button
+          type="primary"
+          size="large"
+          icon={<PlusOutlined />}
+          onClick={() => setCreateModalVisible(true)}
+        >
+          새 그룹 만들기
+        </Button>
+      ),
+    });
+
+    return () => setPageHeader(null);
+  }, [setPageHeader]);
 
   // 로그인 확인
   useEffect(() => {
@@ -90,7 +114,7 @@ export default function GroupsPage() {
         );
       }
     } catch (error) {
-      message.error("그룹 목록을 불러오는데 실패했습니다.");
+      messageApi.error("그룹 목록을 불러오는데 실패했습니다.");
     } finally {
       setLoading(false);
     }
@@ -108,15 +132,15 @@ export default function GroupsPage() {
       });
 
       if (result.success) {
-        message.success("그룹이 성공적으로 생성되었습니다!");
+        messageApi.success("그룹이 성공적으로 생성되었습니다!");
         setCreateModalVisible(false);
         form.resetFields();
         loadGroups();
       } else {
-        message.error(result.error || "그룹 생성에 실패했습니다.");
+        messageApi.error(result.error || "그룹 생성에 실패했습니다.");
       }
     } catch (error) {
-      message.error("그룹 생성 중 오류가 발생했습니다.");
+      messageApi.error("그룹 생성 중 오류가 발생했습니다.");
     } finally {
       setCreateLoading(false);
     }
@@ -162,7 +186,7 @@ export default function GroupsPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 py-8">
         <Card>
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">로그인이 필요합니다</h2>
@@ -224,22 +248,6 @@ export default function GroupsPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* 헤더 */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">그룹 관리</h1>
-            <p className="text-gray-600 mt-2">그룹을 만들고 관리하세요</p>
-          </div>
-          <Button
-            type="primary"
-            size="large"
-            icon={<PlusOutlined />}
-            onClick={() => setCreateModalVisible(true)}
-          >
-            새 그룹 만들기
-          </Button>
-        </div>
-
         {/* 그룹 목록 */}
         {loading ? (
           <div className="text-center py-12">
@@ -259,7 +267,7 @@ export default function GroupsPage() {
             form.resetFields();
           }}
           footer={null}
-          destroyOnClose
+          destroyOnHidden
         >
           <Form form={form} layout="vertical" onFinish={handleCreateGroup} size="large">
             <Form.Item

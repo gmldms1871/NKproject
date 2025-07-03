@@ -12,8 +12,8 @@ import {
   DatePicker,
   Modal,
   Descriptions,
-  message,
   Space,
+  App,
 } from "antd";
 import {
   UserOutlined,
@@ -35,6 +35,7 @@ import dayjs from "dayjs";
 export default function MyPage() {
   const router = useRouter();
   const { user, setUser } = useAuth();
+  const { message: messageApi } = App.useApp();
   const [isLoading, setIsLoading] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
 
@@ -80,7 +81,7 @@ export default function MyPage() {
     const result = await signOut();
     if (result.success) {
       setUser(null);
-      message.success("안전하게 로그아웃되었습니다.");
+      messageApi.success("안전하게 로그아웃되었습니다.");
       router.push("/auth");
     }
   };
@@ -98,12 +99,12 @@ export default function MyPage() {
 
       if (result.success && result.data) {
         setUser(result.data);
-        message.success("프로필이 성공적으로 수정되었습니다.");
+        messageApi.success("프로필이 성공적으로 수정되었습니다.");
       } else {
-        message.error(result.error || "프로필 수정에 실패했습니다.");
+        messageApi.error(result.error || "프로필 수정에 실패했습니다.");
       }
     } catch (error) {
-      message.error("프로필 수정 중 오류가 발생했습니다.");
+      messageApi.error("프로필 수정 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -112,7 +113,7 @@ export default function MyPage() {
   // 비밀번호 변경 처리
   const handleResetPassword = async (values: any) => {
     if (values.newPassword !== values.confirmPassword) {
-      message.error("새 비밀번호와 확인 비밀번호가 일치하지 않습니다.");
+      messageApi.error("새 비밀번호와 확인 비밀번호가 일치하지 않습니다.");
       return;
     }
 
@@ -125,13 +126,13 @@ export default function MyPage() {
       });
 
       if (result.success) {
-        message.success("비밀번호가 성공적으로 변경되었습니다.");
+        messageApi.success("비밀번호가 성공적으로 변경되었습니다.");
         passwordForm.resetFields();
       } else {
-        message.error(result.error || "비밀번호 변경에 실패했습니다.");
+        messageApi.error(result.error || "비밀번호 변경에 실패했습니다.");
       }
     } catch (error) {
-      message.error("비밀번호 변경 중 오류가 발생했습니다.");
+      messageApi.error("비밀번호 변경 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -140,7 +141,7 @@ export default function MyPage() {
   // 계정 탈퇴 처리
   const handleDeleteAccount = async (values: any) => {
     if (values.confirmText !== "계정탈퇴") {
-      message.error("'계정탈퇴'를 정확히 입력해주세요.");
+      messageApi.error("'계정탈퇴'를 정확히 입력해주세요.");
       return;
     }
 
@@ -151,13 +152,13 @@ export default function MyPage() {
 
       if (result.success) {
         setUser(null);
-        message.success("계정이 성공적으로 탈퇴되었습니다.");
+        messageApi.success("계정이 성공적으로 탈퇴되었습니다.");
         router.push("/auth");
       } else {
-        message.error(result.error || "계정 탈퇴에 실패했습니다.");
+        messageApi.error(result.error || "계정 탈퇴에 실패했습니다.");
       }
     } catch (error) {
-      message.error("계정 탈퇴 중 오류가 발생했습니다.");
+      messageApi.error("계정 탈퇴 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
       setDeleteModalVisible(false);
@@ -362,7 +363,7 @@ export default function MyPage() {
           open={deleteModalVisible}
           onCancel={() => setDeleteModalVisible(false)}
           footer={null}
-          destroyOnClose
+          destroyOnHidden
         >
           <div className="mb-4">
             <p className="text-gray-600 mb-2">정말로 계정을 탈퇴하시겠습니까?</p>

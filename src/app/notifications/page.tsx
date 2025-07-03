@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Button, Empty, Badge, Space, Avatar, message, Popconfirm, Tabs } from "antd";
+import { Card, Button, Empty, Badge, Space, Avatar, Popconfirm, Tabs, Spin, App } from "antd";
 import {
   BellOutlined,
   TeamOutlined,
@@ -10,8 +10,11 @@ import {
   CheckOutlined,
   EyeOutlined,
   ClockCircleOutlined,
+  MailOutlined,
+  UserOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
+import { usePageHeader } from "@/contexts/page-header-context";
 import {
   getUserNotifications,
   markNotificationAsRead,
@@ -44,9 +47,27 @@ interface Notification {
 export default function NotificationsPage() {
   const router = useRouter();
   const { user } = useAuth();
+  const { setPageHeader } = usePageHeader();
+  const { message: messageApi } = App.useApp();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // 페이지 헤더 설정
+  useEffect(() => {
+    setPageHeader({
+      title: "알림",
+      subtitle: "받은 알림을 확인하고 관리하세요",
+      actions:
+        unreadCount > 0 ? (
+          <Button type="primary" icon={<CheckOutlined />} onClick={handleMarkAllAsRead}>
+            모두 읽음
+          </Button>
+        ) : undefined,
+    });
+
+    return () => setPageHeader(null);
+  }, [setPageHeader, unreadCount]);
 
   useEffect(() => {
     if (!user) {
@@ -73,10 +94,10 @@ export default function NotificationsPage() {
           }))
         );
       } else {
-        message.error(result.error || "알림을 불러오는데 실패했습니다.");
+        messageApi.error(result.error || "알림을 불러오는데 실패했습니다.");
       }
     } catch (error) {
-      message.error("알림을 불러오는 중 오류가 발생했습니다.");
+      messageApi.error("알림을 불러오는 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -106,11 +127,12 @@ export default function NotificationsPage() {
           prev.map((notif) => (notif.id === notificationId ? { ...notif, is_read: true } : notif))
         );
         setUnreadCount((prev) => Math.max(0, prev - 1));
+        messageApi.success("알림을 읽음으로 처리했습니다.");
       } else {
-        message.error(result.error || "알림 읽음 처리에 실패했습니다.");
+        messageApi.error(result.error || "알림 읽음 처리에 실패했습니다.");
       }
     } catch (error) {
-      message.error("알림 읽음 처리 중 오류가 발생했습니다.");
+      messageApi.error("알림 읽음 처리 중 오류가 발생했습니다.");
     }
   };
 
@@ -123,12 +145,12 @@ export default function NotificationsPage() {
       if (result.success) {
         setNotifications((prev) => prev.map((notif) => ({ ...notif, is_read: true })));
         setUnreadCount(0);
-        message.success("모든 알림을 읽음으로 처리했습니다.");
+        messageApi.success("모든 알림을 읽음으로 처리했습니다.");
       } else {
-        message.error(result.error || "전체 읽음 처리에 실패했습니다.");
+        messageApi.error(result.error || "전체 읽음 처리에 실패했습니다.");
       }
     } catch (error) {
-      message.error("전체 읽음 처리 중 오류가 발생했습니다.");
+      messageApi.error("전체 읽음 처리 중 오류가 발생했습니다.");
     }
   };
 
@@ -140,12 +162,12 @@ export default function NotificationsPage() {
 
       if (result.success) {
         setNotifications((prev) => prev.filter((notif) => notif.id !== notificationId));
-        message.success("알림이 삭제되었습니다.");
+        messageApi.success("알림이 삭제되었습니다.");
       } else {
-        message.error(result.error || "알림 삭제에 실패했습니다.");
+        messageApi.error(result.error || "알림 삭제에 실패했습니다.");
       }
     } catch (error) {
-      message.error("알림 삭제 중 오류가 발생했습니다.");
+      messageApi.error("알림 삭제 중 오류가 발생했습니다.");
     }
   };
 
@@ -165,6 +187,10 @@ export default function NotificationsPage() {
     switch (type) {
       case "그룹 초대":
         return <TeamOutlined style={{ color: "#1890ff" }} />;
+      case "초대":
+        return <MailOutlined style={{ color: "#52c41a" }} />;
+      case "시스템":
+        return <BellOutlined style={{ color: "#faad14" }} />;
       default:
         return <BellOutlined style={{ color: "#1890ff" }} />;
     }
@@ -204,6 +230,7 @@ export default function NotificationsPage() {
         className={`
           ${expired ? "opacity-60" : ""}
           ${unread ? "border-l-4 border-l-blue-500 bg-blue-50" : ""}
+          transition-all duration-200
         `}
         size="small"
       >
@@ -292,7 +319,7 @@ export default function NotificationsPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 py-8">
         <Card>
           <div className="text-center">
             <h2 className="text-2xl font-bold text-gray-900 mb-4">로그인이 필요합니다</h2>
@@ -313,7 +340,9 @@ export default function NotificationsPage() {
       key: "unread",
       label: (
         <Space>
-          <BellOutlined />
+          <Badge count={unreadNotifications.length} showZero={false}>
+            <BellOutlined />
+          </Badge>
           읽지 않음 ({unreadNotifications.length})
         </Space>
       ),
@@ -324,7 +353,7 @@ export default function NotificationsPage() {
               <NotificationCard key={notification.id} notification={notification} />
             ))
           ) : (
-            <Empty description="읽지 않은 알림이 없습니다." />
+            <Empty description="읽지 않은 알림이 없습니다." image={Empty.PRESENTED_IMAGE_SIMPLE} />
           )}
         </div>
       ),
@@ -344,7 +373,7 @@ export default function NotificationsPage() {
               <NotificationCard key={notification.id} notification={notification} />
             ))
           ) : (
-            <Empty description="읽은 알림이 없습니다." />
+            <Empty description="읽은 알림이 없습니다." image={Empty.PRESENTED_IMAGE_SIMPLE} />
           )}
         </div>
       ),
@@ -364,7 +393,7 @@ export default function NotificationsPage() {
               <NotificationCard key={notification.id} notification={notification} />
             ))
           ) : (
-            <Empty description="알림이 없습니다." />
+            <Empty description="알림이 없습니다." image={Empty.PRESENTED_IMAGE_SIMPLE} />
           )}
         </div>
       ),
@@ -374,27 +403,9 @@ export default function NotificationsPage() {
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* 헤더 */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center space-x-2">
-              <BellOutlined />
-              <span>알림</span>
-              {unreadCount > 0 && <Badge count={unreadCount} />}
-            </h1>
-            <p className="text-gray-600 mt-2">받은 알림을 확인하고 관리하세요</p>
-          </div>
-
-          {unreadCount > 0 && (
-            <Button type="primary" icon={<CheckOutlined />} onClick={handleMarkAllAsRead}>
-              모두 읽음
-            </Button>
-          )}
-        </div>
-
         {loading ? (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <Spin size="large" />
             <p className="mt-4 text-gray-600">알림을 불러오는 중...</p>
           </div>
         ) : (

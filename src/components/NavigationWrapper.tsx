@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Layout, Menu, Badge, Avatar, Dropdown, Space, Button } from "antd";
+import { Layout, Menu, Badge, Avatar, Dropdown, Space, Button, App } from "antd";
 import {
   HomeOutlined,
   TeamOutlined,
@@ -12,9 +12,11 @@ import {
   LogoutOutlined,
   LoginOutlined,
   UserAddOutlined,
+  ArrowLeftOutlined,
 } from "@ant-design/icons";
 import type { MenuProps } from "antd";
 import { useAuth } from "@/contexts/auth-context";
+import { usePageHeader } from "@/contexts/page-header-context";
 import { getUnreadNotificationCount } from "@/lib/notifications";
 import { signOut } from "@/lib/users";
 
@@ -28,6 +30,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, setUser } = useAuth();
+  const { pageHeader } = usePageHeader();
   const [unreadCount, setUnreadCount] = useState(0);
 
   // 읽지 않은 알림 개수 조회
@@ -137,6 +140,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
 
   return (
     <Layout className="min-h-screen">
+      {/* 메인 네비게이션 헤더 */}
       <Header className="bg-white border-b border-gray-200 px-4 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto flex justify-between items-center h-full">
           {/* 로고 및 메뉴 */}
@@ -151,7 +155,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
             {menuItems && (
               <Menu
                 mode="horizontal"
-                selectedKeys={[pathname]}
+                selectedKeys={[pathname.startsWith("/groups") ? "/groups" : pathname]}
                 items={menuItems}
                 onClick={handleMenuClick}
                 className="border-none"
@@ -187,7 +191,58 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
         </div>
       </Header>
 
-      <Content>{children}</Content>
+      <Content>
+        {/* 페이지별 헤더 */}
+        {pageHeader && (
+          <div className="bg-white border-b border-gray-200">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  {pageHeader.backUrl && (
+                    <Button
+                      icon={<ArrowLeftOutlined />}
+                      onClick={() => router.push(pageHeader.backUrl!)}
+                    >
+                      뒤로 가기
+                    </Button>
+                  )}
+                  <div>
+                    {pageHeader.breadcrumb && (
+                      <nav className="text-sm text-gray-500 mb-1">
+                        {pageHeader.breadcrumb.map((crumb, index) => (
+                          <span key={index}>
+                            {crumb.href ? (
+                              <button
+                                onClick={() => router.push(crumb.href!)}
+                                className="hover:text-gray-700"
+                              >
+                                {crumb.title}
+                              </button>
+                            ) : (
+                              crumb.title
+                            )}
+                            {index < pageHeader.breadcrumb!.length - 1 && " > "}
+                          </span>
+                        ))}
+                      </nav>
+                    )}
+                    {pageHeader.title && (
+                      <h1 className="text-2xl font-bold text-gray-900">{pageHeader.title}</h1>
+                    )}
+                    {pageHeader.subtitle && (
+                      <p className="text-gray-600 mt-1">{pageHeader.subtitle}</p>
+                    )}
+                  </div>
+                </div>
+                {pageHeader.actions && <div>{pageHeader.actions}</div>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 메인 컨텐츠 */}
+        <div className={pageHeader ? "" : ""}>{children}</div>
+      </Content>
     </Layout>
   );
 }

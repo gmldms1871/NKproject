@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Button, Card, Descriptions, Layout, Space, message } from "antd";
+import { Button, Card, Descriptions, Layout, Space, App } from "antd";
 import { LogoutOutlined, UserOutlined, LoginOutlined, UserAddOutlined } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { signOut } from "@/lib/users";
@@ -11,13 +11,14 @@ const { Header, Content, Footer } = Layout;
 
 export default function Home() {
   const { user, setUser, isLoading } = useAuth();
+  const { message: messageApi } = App.useApp();
   const router = useRouter();
 
   const handleSignOut = async () => {
     const result = await signOut();
     if (result.success) {
       setUser(null);
-      message.success("안전하게 로그아웃되었습니다.");
+      messageApi.success("안전하게 로그아웃되었습니다.");
     }
   };
 
@@ -34,41 +35,6 @@ export default function Home() {
 
   return (
     <Layout className="min-h-screen">
-      <Header className="bg-white border-b border-gray-200 px-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <Link href="/" className="text-xl font-bold text-gray-900">
-            Report Management System
-          </Link>
-
-          <Space>
-            {user ? (
-              <>
-                <span className="text-gray-600">안녕하세요, {user.name}님!</span>
-                <Button icon={<UserOutlined />} onClick={() => router.push("/mypage")}>
-                  마이페이지
-                </Button>
-                <Button icon={<LogoutOutlined />} onClick={handleSignOut}>
-                  로그아웃
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button icon={<LoginOutlined />} onClick={() => router.push("/auth")}>
-                  로그인
-                </Button>
-                <Button
-                  type="primary"
-                  icon={<UserAddOutlined />}
-                  onClick={() => router.push("/auth")}
-                >
-                  회원가입
-                </Button>
-              </>
-            )}
-          </Space>
-        </div>
-      </Header>
-
       <Content className="flex-1">
         <div className="py-12 md:py-24 lg:py-32">
           <div className="max-w-7xl mx-auto px-4 md:px-6">
