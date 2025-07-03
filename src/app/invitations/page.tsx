@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Button, Empty, Avatar, Space, Tag, Modal, Spin, App } from "antd";
 import {
@@ -59,15 +59,7 @@ export default function InvitationsPage() {
     return () => setPageHeader(null);
   }, [setPageHeader, invitations]);
 
-  useEffect(() => {
-    if (!user) {
-      router.push("/auth");
-      return;
-    }
-    loadInvitations();
-  }, [user, router]);
-
-  const loadInvitations = async () => {
+  const loadInvitations = useCallback(async () => {
     if (!user) return;
 
     setLoading(true);
@@ -84,7 +76,15 @@ export default function InvitationsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, messageApi]);
+
+  useEffect(() => {
+    if (!user) {
+      router.push("/auth");
+      return;
+    }
+    loadInvitations();
+  }, [user, router, loadInvitations]);
 
   const handleAcceptInvitation = async (invitationId: string) => {
     if (!user) return;

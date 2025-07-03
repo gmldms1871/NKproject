@@ -19,6 +19,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
 import { getUnreadNotificationCount } from "@/lib/notifications";
 import { signOut } from "@/lib/users";
+import { useCallback } from "react";
 
 const { Header, Content } = Layout;
 
@@ -33,17 +34,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
   const { pageHeader } = usePageHeader();
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // 읽지 않은 알림 개수 조회
-  useEffect(() => {
-    if (user) {
-      loadUnreadCount();
-      // 5분마다 알림 개수 업데이트
-      const interval = setInterval(loadUnreadCount, 5 * 60 * 1000);
-      return () => clearInterval(interval);
-    }
-  }, [user]);
-
-  const loadUnreadCount = async () => {
+  const loadUnreadCount = useCallback(async () => {
     if (!user) return;
 
     try {
@@ -54,7 +45,17 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
     } catch (error) {
       console.error("알림 개수 조회 실패:", error);
     }
-  };
+  }, [user]);
+
+  // 읽지 않은 알림 개수 조회
+  useEffect(() => {
+    if (user) {
+      loadUnreadCount();
+      // 5분마다 알림 개수 업데이트
+      const interval = setInterval(loadUnreadCount, 5 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [loadUnreadCount, user]);
 
   const handleSignOut = async () => {
     const result = await signOut();

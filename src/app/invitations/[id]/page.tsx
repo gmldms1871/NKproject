@@ -17,6 +17,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
 import { acceptGroupInvitation, rejectGroupInvitation } from "@/lib/groups";
 import { markNotificationAsRead } from "@/lib/notifications";
+import { useCallback } from "react";
 
 interface InvitationDetail {
   id: string;
@@ -65,23 +66,7 @@ export default function InvitationDetailPage() {
     return () => setPageHeader(null);
   }, [setPageHeader, invitation]);
 
-  useEffect(() => {
-    if (!user) {
-      router.push("/auth");
-      return;
-    }
-
-    // 실제 구현에서는 API에서 초대 상세 정보를 가져와야 함
-    // 여기서는 임시 데이터를 사용
-    loadInvitationDetail();
-
-    // 알림을 읽음으로 표시 (related_id가 초대 ID인 알림)
-    if (invitationId) {
-      markNotificationAsRead(invitationId, user.id);
-    }
-  }, [user, invitationId, router]);
-
-  const loadInvitationDetail = async () => {
+  const loadInvitationDetail = useCallback(async () => {
     setLoading(true);
     try {
       // 실제로는 API에서 초대 상세 정보를 가져와야 함
@@ -118,7 +103,23 @@ export default function InvitationDetailPage() {
       setNotFound(true);
       setLoading(false);
     }
-  };
+  }, [invitationId, user]);
+
+  useEffect(() => {
+    if (!user) {
+      router.push("/auth");
+      return;
+    }
+
+    // 실제 구현에서는 API에서 초대 상세 정보를 가져와야 함
+    // 여기서는 임시 데이터를 사용
+    loadInvitationDetail();
+
+    // 알림을 읽음으로 표시 (related_id가 초대 ID인 알림)
+    if (invitationId) {
+      markNotificationAsRead(invitationId, user.id);
+    }
+  }, [user, invitationId, router, loadInvitationDetail]);
 
   const handleAcceptInvitation = async () => {
     if (!user || !invitationId) return;

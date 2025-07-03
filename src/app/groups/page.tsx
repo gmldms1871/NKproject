@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import {
   Card,
   Button,
@@ -69,16 +70,7 @@ export default function GroupsPage() {
     return () => setPageHeader(null);
   }, [setPageHeader]);
 
-  // 로그인 확인
-  useEffect(() => {
-    if (!user) {
-      router.push("/auth");
-      return;
-    }
-    loadGroups();
-  }, [user, router]);
-
-  const loadGroups = async () => {
+  const loadGroups = useCallback(async () => {
     if (!user) return;
 
     setLoading(true);
@@ -118,7 +110,16 @@ export default function GroupsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, messageApi]);
+
+  // 로그인 확인
+  useEffect(() => {
+    if (!user) {
+      router.push("/auth");
+      return;
+    }
+    loadGroups();
+  }, [user, router, loadGroups]);
 
   const handleCreateGroup = async (values: any) => {
     if (!user) return;
@@ -152,7 +153,14 @@ export default function GroupsPage() {
       onClick={() => router.push(`/groups/${group.id}`)}
       cover={
         group.image_url ? (
-          <img alt={group.name} src={group.image_url} style={{ height: 200, objectFit: "cover" }} />
+          <Image
+            alt={group.name}
+            src={group.image_url}
+            width={400}
+            height={200}
+            style={{ height: 200, objectFit: "cover", width: "100%" }}
+            unoptimized
+          />
         ) : (
           <div
             style={{

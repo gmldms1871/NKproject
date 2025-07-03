@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   Card,
@@ -78,15 +78,7 @@ export default function GroupDetailPage() {
     return () => setPageHeader(null);
   }, [group, setPageHeader]);
 
-  useEffect(() => {
-    if (!user) {
-      router.push("/auth");
-      return;
-    }
-    loadGroupData();
-  }, [user, groupId]);
-
-  const loadGroupData = async () => {
+  const loadGroupData = useCallback(async () => {
     if (!user || !groupId) return;
 
     setLoading(true);
@@ -118,7 +110,15 @@ export default function GroupDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, groupId, messageApi]);
+
+  useEffect(() => {
+    if (!user) {
+      router.push("/auth");
+      return;
+    }
+    loadGroupData();
+  }, [user, groupId, loadGroupData, router]);
 
   const handleCreateRole = async (values: any) => {
     if (!user) return;
