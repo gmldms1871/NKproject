@@ -40,6 +40,10 @@ import {
   createGroupRole,
   updateGroupRole,
   deleteGroupRole,
+  updateGroup,
+  deleteGroup,
+  leaveGroup,
+  transferGroupOwnership,
   GroupMemberWithDetails,
 } from "@/lib/groups";
 import { getAllClasses, ClassWithDetails } from "@/lib/classes";
@@ -57,11 +61,29 @@ interface CreateRoleFormValues {
   can_delete_form: boolean;
 }
 
+interface CreateRoleFormValues {
+  name: string;
+  can_invite: boolean;
+  can_manage_roles: boolean;
+  can_create_form: boolean;
+  can_delete_form: boolean;
+}
+
 interface UpdateRoleFormValues {
   can_invite: boolean;
   can_manage_roles: boolean;
   can_create_form: boolean;
   can_delete_form: boolean;
+}
+
+interface UpdateGroupFormValues {
+  name: string;
+  description?: string;
+  image_url?: string;
+}
+
+interface TransferOwnershipFormValues {
+  newOwnerId: string;
 }
 
 export default function GroupDetailPage() {
@@ -80,11 +102,13 @@ export default function GroupDetailPage() {
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
   const [roleModalVisible, setRoleModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [editingRole, setEditingRole] = useState<GroupRole | null>(null);
 
   const [inviteForm] = Form.useForm();
   const [roleForm] = Form.useForm();
   const [settingsForm] = Form.useForm();
+  const [transferForm] = Form.useForm();
 
   const userRole = members.find((m) => m.users?.id === user?.id)?.group_roles;
 
@@ -119,18 +143,25 @@ export default function GroupDetailPage() {
 
       if (membersResult.success) {
         setMembers(membersResult.data || []);
-        // 그룹 정보는 멤버 정보에서 추출
+        // 그룹 정보는 멤버 정보에서 추출 (실제로는 별도 API 필요)
         const groupInfo = membersResult.data?.[0];
         if (groupInfo) {
-          // 실제로는 별도 API가 필요하지만, 임시로 멤버 데이터에서 추출
-          setGroup({
+          const mockGroup: Group = {
             id: groupId,
             name: "Group Name", // 실제로는 API에서 가져와야 함
             description: "Group Description",
             image_url: null,
-            owner_id: null,
+            owner_id: groupInfo.users?.id || null, // 실제 소유자 ID
             created_at: null,
             updated_at: null,
+          };
+          setGroup(mockGroup);
+
+          // 설정 폼 초기값 설정
+          settingsForm.setFieldsValue({
+            name: mockGroup.name,
+            description: mockGroup.description,
+            image_url: mockGroup.image_url,
           });
         }
       }
@@ -147,7 +178,7 @@ export default function GroupDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [user, groupId, messageApi]);
+  }, [user, groupId, settingsForm, messageApi]);
 
   useEffect(() => {
     if (!user) {
@@ -234,6 +265,89 @@ export default function GroupDetailPage() {
       messageApi.error("멤버 역할 변경 중 오류가 발생했습니다.");
     }
   };
+
+  // 그룹 정보 수정
+  const handleUpdateGroup = async (values: UpdateGroupFormValues) => {
+    if (!user || !group) return;
+
+    try {
+      const result = await updateGroup(groupId, user.id, {
+        name: values.name,
+        description: values.description,
+        image_url: values.image_url,
+      });
+
+      if (result.success) {
+        messageApi.success("그룹 정보가 성공적으로 수정되었습니다!");
+        setSettingsModalVisible(false);
+        loadGroupData();
+      } else {
+        messageApi.error(result.error || "그룹 정보 수정에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("그룹 정보 수정 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 그룹 삭제
+  const handleDeleteGroup = async () => {
+    if (!user || !group) return;
+
+    try {
+      const result = await deleteGroup(groupId, user.id);
+
+      if (result.success) {
+        messageApi.success("그룹이 성공적으로 삭제되었습니다.");
+        router.push("/groups");
+      } else {
+        messageApi.error(result.error || "그룹 삭제에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("그룹 삭제 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 그룹 나가기
+  const handleLeaveGroup = async () => {
+    if (!user || !group) return;
+
+    try {
+      const result = await leaveGroup(groupId, user.id);
+
+      if (result.success) {
+        messageApi.success("그룹에서 나갔습니다.");
+        router.push("/groups");
+      } else {
+        messageApi.error(result.error || "그룹 나가기에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("그룹 나가기 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 소유권 이전
+  const handleTransferOwnership = async (values: TransferOwnershipFormValues) => {
+    if (!user || !group) return;
+
+    try {
+      const result = await transferGroupOwnership(groupId, user.id, values.newOwnerId);
+
+      if (result.success) {
+        messageApi.success("그룹 소유권이 성공적으로 이전되었습니다!");
+        setTransferModalVisible(false);
+        transferForm.resetFields();
+        loadGroupData();
+      } else {
+        messageApi.error(result.error || "소유권 이전에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("소유권 이전 중 오류가 발생했습니다.");
+    }
+  };
+
+  // 사용자의 권한 확인
+  const isOwner = group?.owner_id === user?.id;
+  const canManageGroup = isOwner;
 
   const membersColumns = [
     {
@@ -622,6 +736,163 @@ export default function GroupDetailPage() {
               </Form.Item>
             </Form>
           )}
+        </Modal>
+
+        {/* 그룹 설정 모달 */}
+        <Modal
+          title="그룹 설정"
+          open={settingsModalVisible}
+          onCancel={() => setSettingsModalVisible(false)}
+          footer={null}
+          width={600}
+          destroyOnClose
+        >
+          {isOwner ? (
+            // 소유자용 설정
+            <Tabs
+              items={[
+                {
+                  key: "info",
+                  label: "그룹 정보",
+                  children: (
+                    <Form form={settingsForm} layout="vertical" onFinish={handleUpdateGroup}>
+                      <Form.Item
+                        name="name"
+                        label="그룹 이름"
+                        rules={[{ required: true, message: "그룹 이름을 입력해주세요!" }]}
+                      >
+                        <Input placeholder="그룹 이름" />
+                      </Form.Item>
+
+                      <Form.Item name="description" label="설명">
+                        <Input.TextArea rows={3} placeholder="그룹 설명" />
+                      </Form.Item>
+
+                      <Form.Item name="image_url" label="이미지 URL">
+                        <Input placeholder="https://example.com/image.jpg" />
+                      </Form.Item>
+
+                      <Form.Item>
+                        <Button type="primary" htmlType="submit">
+                          정보 수정
+                        </Button>
+                      </Form.Item>
+                    </Form>
+                  ),
+                },
+                {
+                  key: "transfer",
+                  label: "소유권 이전",
+                  children: (
+                    <div>
+                      <p className="text-gray-600 mb-4">
+                        그룹의 소유권을 다른 멤버에게 이전할 수 있습니다.
+                      </p>
+                      <Form
+                        form={transferForm}
+                        layout="vertical"
+                        onFinish={handleTransferOwnership}
+                      >
+                        <Form.Item
+                          name="newOwnerId"
+                          label="새 소유자"
+                          rules={[{ required: true, message: "새 소유자를 선택해주세요!" }]}
+                        >
+                          <Select placeholder="새 소유자를 선택하세요">
+                            {members
+                              .filter((member) => member.users?.id !== user?.id)
+                              .map((member) => (
+                                <Select.Option key={member.users?.id} value={member.users?.id}>
+                                  {member.users?.name} (@{member.users?.nickname})
+                                </Select.Option>
+                              ))}
+                          </Select>
+                        </Form.Item>
+
+                        <Form.Item>
+                          <Button type="primary" danger htmlType="submit">
+                            소유권 이전
+                          </Button>
+                        </Form.Item>
+                      </Form>
+                    </div>
+                  ),
+                },
+                {
+                  key: "danger",
+                  label: "위험 구역",
+                  children: (
+                    <div className="space-y-4">
+                      <div className="border border-red-200 rounded-lg p-4 bg-red-50">
+                        <h3 className="text-lg font-semibold text-red-600 mb-2">그룹 삭제</h3>
+                        <p className="text-sm text-red-600 mb-4">
+                          이 작업은 되돌릴 수 없습니다. 모든 데이터가 삭제됩니다.
+                        </p>
+                        <Popconfirm
+                          title="정말 이 그룹을 삭제하시겠습니까?"
+                          description="이 작업은 되돌릴 수 없습니다."
+                          onConfirm={handleDeleteGroup}
+                        >
+                          <Button danger>그룹 삭제</Button>
+                        </Popconfirm>
+                      </div>
+                    </div>
+                  ),
+                },
+              ]}
+            />
+          ) : (
+            // 일반 멤버용 설정
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-medium mb-2">그룹 정보</h3>
+                <div className="bg-gray-50 p-4 rounded">
+                  <p>
+                    <strong>이름:</strong> {group?.name}
+                  </p>
+                  <p>
+                    <strong>설명:</strong> {group?.description || "설명이 없습니다."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="border border-orange-200 rounded-lg p-4 bg-orange-50">
+                <h3 className="text-lg font-semibold text-orange-600 mb-2">그룹 나가기</h3>
+                <p className="text-sm text-orange-600 mb-4">
+                  그룹에서 나가면 다시 초대를 받아야 참여할 수 있습니다.
+                </p>
+                <Popconfirm
+                  title="정말 그룹에서 나가시겠습니까?"
+                  description="다시 참여하려면 초대를 받아야 합니다."
+                  onConfirm={handleLeaveGroup}
+                >
+                  <Button danger>그룹 나가기</Button>
+                </Popconfirm>
+              </div>
+            </div>
+          )}
+        </Modal>
+
+        {/* 소유권 이전 확인 모달 */}
+        <Modal
+          title="소유권 이전 확인"
+          open={transferModalVisible}
+          onCancel={() => setTransferModalVisible(false)}
+          footer={null}
+          destroyOnClose
+        >
+          <div className="space-y-4">
+            <p>정말 그룹 소유권을 이전하시겠습니까?</p>
+            <p className="text-sm text-gray-600">
+              소유권을 이전하면 당신은 일반 멤버가 되며, 그룹 관리 권한을 잃게 됩니다.
+            </p>
+            <Space>
+              <Button onClick={() => setTransferModalVisible(false)}>취소</Button>
+              <Button type="primary" danger onClick={() => transferForm.submit()}>
+                이전하기
+              </Button>
+            </Space>
+          </div>
         </Modal>
       </div>
     </div>

@@ -175,7 +175,7 @@ export const createClass = async (
 
 /**
  * 반 삭제
- * 그룹 멤버만 가능, 관련 데이터 cascade 삭제
+ * 그룹 멤버만 가능, 관련 데이터 순차적 삭제 후 반 삭제
  */
 export const deleteClass = async (classId: string, userId: string): Promise<ApiResponse<void>> => {
   try {
@@ -202,10 +202,46 @@ export const deleteClass = async (classId: string, userId: string): Promise<ApiR
       return { success: false, error: "그룹 멤버만 반을 삭제할 수 있습니다." };
     }
 
-    // 반 삭제 (cascade로 관련 데이터 자동 삭제)
-    const { error } = await supabaseAdmin.from("classes").delete().eq("id", classId);
+    // 순차적으로 관련 데이터 삭제
 
-    if (error) {
+    // 1. 반 구성원 삭제
+    const { error: membersError } = await supabaseAdmin
+      .from("class_members")
+      .delete()
+      .eq("class_id", classId);
+
+    if (membersError) {
+      console.error("Delete class members error:", membersError);
+      return { success: false, error: "반 구성원 삭제에 실패했습니다." };
+    }
+
+    // 2. 반 태그 삭제
+    const { error: tagsError } = await supabaseAdmin
+      .from("class_tags")
+      .delete()
+      .eq("class_id", classId);
+
+    if (tagsError) {
+      console.error("Delete class tags error:", tagsError);
+      return { success: false, error: "반 태그 삭제에 실패했습니다." };
+    }
+
+    // 3. form_responses 삭제 (class_id가 있는 경우)
+    const { error: formResponsesError } = await supabaseAdmin
+      .from("form_responses")
+      .delete()
+      .eq("class_id", classId);
+
+    if (formResponsesError) {
+      console.error("Delete form responses error:", formResponsesError);
+      // form_responses 삭제 실패는 치명적이지 않으므로 계속 진행
+    }
+
+    // 4. 마지막으로 반 삭제
+    const { error: classError } = await supabaseAdmin.from("classes").delete().eq("id", classId);
+
+    if (classError) {
+      console.error("Delete class error:", classError);
       return { success: false, error: "반 삭제에 실패했습니다." };
     }
 
