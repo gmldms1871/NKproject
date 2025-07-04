@@ -16,6 +16,7 @@ import {
   Avatar,
   Popconfirm,
   Switch,
+  Empty,
   App,
 } from "antd";
 import {
@@ -24,6 +25,10 @@ import {
   CrownOutlined,
   DeleteOutlined,
   EditOutlined,
+  TeamOutlined,
+  CalendarOutlined,
+  TagOutlined,
+  PlusOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -37,6 +42,7 @@ import {
   deleteGroupRole,
   GroupMemberWithDetails,
 } from "@/lib/groups";
+import { getAllClasses, ClassWithDetails } from "@/lib/classes";
 import { Database } from "@/lib/types/types";
 
 // 타입 정의
@@ -68,6 +74,7 @@ export default function GroupDetailPage() {
 
   const [members, setMembers] = useState<GroupMemberWithDetails[]>([]);
   const [roles, setRoles] = useState<GroupRole[]>([]);
+  const [classes, setClasses] = useState<ClassWithDetails[]>([]);
   const [group, setGroup] = useState<Group | null>(null);
   const [loading, setLoading] = useState(true);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
@@ -104,9 +111,10 @@ export default function GroupDetailPage() {
 
     setLoading(true);
     try {
-      const [membersResult, rolesResult] = await Promise.all([
+      const [membersResult, rolesResult, classesResult] = await Promise.all([
         getGroupMembers(groupId, user.id),
         getGroupRoles(groupId, user.id),
+        getAllClasses(groupId, user.id),
       ]);
 
       if (membersResult.success) {
@@ -129,6 +137,10 @@ export default function GroupDetailPage() {
 
       if (rolesResult.success) {
         setRoles(rolesResult.data || []);
+      }
+
+      if (classesResult.success) {
+        setClasses(classesResult.data || []);
       }
     } catch (error) {
       messageApi.error("그룹 정보를 불러오는데 실패했습니다.");
@@ -372,6 +384,97 @@ export default function GroupDetailPage() {
       ),
     },
     {
+      key: "classes",
+      label: `반 (${classes.length})`,
+      children: (
+        <div>
+          <div className="mb-4 flex justify-between">
+            <h3 className="text-lg font-medium">그룹 반</h3>
+            <Space>
+              <Button onClick={() => router.push(`/groups/${groupId}/classes`)}>전체 보기</Button>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => router.push(`/groups/${groupId}/classes`)}
+              >
+                반 관리
+              </Button>
+            </Space>
+          </div>
+
+          {classes.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {classes.slice(0, 6).map((classItem) => (
+                <Card
+                  key={classItem.id}
+                  hoverable
+                  onClick={() => router.push(`/classes/${classItem.id}`)}
+                  className="h-full"
+                  cover={
+                    <div
+                      style={{
+                        height: 80,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        backgroundColor: "#f5f5f5",
+                        position: "relative",
+                      }}
+                    >
+                      <TeamOutlined style={{ fontSize: 24, color: "#d9d9d9" }} />
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 4,
+                          right: 4,
+                          backgroundColor: "rgba(0,0,0,0.6)",
+                          color: "white",
+                          padding: "2px 6px",
+                          borderRadius: 3,
+                          fontSize: 10,
+                        }}
+                      >
+                        {classItem.memberCount}명
+                      </div>
+                    </div>
+                  }
+                >
+                  <Card.Meta
+                    title={<span className="text-sm font-medium truncate">{classItem.name}</span>}
+                    description={
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-600 line-clamp-1">
+                          {classItem.description || "설명이 없습니다."}
+                        </p>
+                        <div className="flex justify-between text-xs text-gray-500">
+                          <span>구성원 {classItem.memberCount}명</span>
+                          <span>태그 {classItem.class_tags.length}개</span>
+                        </div>
+                      </div>
+                    }
+                  />
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <Empty description="아직 생성된 반이 없습니다.">
+              <Button type="primary" onClick={() => router.push(`/groups/${groupId}/classes`)}>
+                첫 번째 반 만들기
+              </Button>
+            </Empty>
+          )}
+
+          {classes.length > 6 && (
+            <div className="text-center mt-4">
+              <Button onClick={() => router.push(`/groups/${groupId}/classes`)}>
+                모든 반 보기 ({classes.length}개)
+              </Button>
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
       key: "roles",
       label: `역할 (${roles.length})`,
       children: (
@@ -422,7 +525,7 @@ export default function GroupDetailPage() {
           open={inviteModalVisible}
           onCancel={() => setInviteModalVisible(false)}
           groupId={groupId}
-          roles={roles.filter((role) => role.name !== null)}
+          roles={roles}
           inviterId={user.id}
           onSuccess={loadGroupData}
         />
