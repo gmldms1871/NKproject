@@ -28,14 +28,20 @@ import {
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
 import { getMyGroups, getMyCreatedGroups, createGroup } from "@/lib/groups";
+import { Database } from "@/lib/types/types";
 
-interface Group {
-  id: string;
+// 타입 정의
+type Group = Database["public"]["Tables"]["groups"]["Row"];
+
+interface CreateGroupFormValues {
   name: string;
-  description: string | null;
-  image_url: string | null;
-  owner_id: string | null;
-  created_at: string | null;
+  description?: string;
+  image_url?: string;
+}
+
+interface GroupCardProps {
+  group: Group;
+  isOwner?: boolean;
 }
 
 export default function GroupsPage() {
@@ -82,7 +88,7 @@ export default function GroupsPage() {
 
       if (myGroupsResult.success) {
         setMyGroups(
-          (myGroupsResult.data || []).map((g: any) => ({
+          (myGroupsResult.data || []).map((g: Group) => ({
             ...g,
             name: g.name ?? "",
             description: g.description ?? "",
@@ -95,7 +101,7 @@ export default function GroupsPage() {
 
       if (createdGroupsResult.success) {
         setMyCreatedGroups(
-          (createdGroupsResult.data || []).map((g: any) => ({
+          (createdGroupsResult.data || []).map((g: Group) => ({
             ...g,
             name: g.name ?? "",
             description: g.description ?? "",
@@ -121,7 +127,7 @@ export default function GroupsPage() {
     loadGroups();
   }, [user, router, loadGroups]);
 
-  const handleCreateGroup = async (values: any) => {
+  const handleCreateGroup = async (values: CreateGroupFormValues) => {
     if (!user) return;
 
     setCreateLoading(true);
@@ -147,14 +153,14 @@ export default function GroupsPage() {
     }
   };
 
-  const GroupCard = ({ group, isOwner = false }: { group: Group; isOwner?: boolean }) => (
+  const GroupCard = ({ group, isOwner = false }: GroupCardProps) => (
     <Card
       hoverable
       onClick={() => router.push(`/groups/${group.id}`)}
       cover={
         group.image_url ? (
           <Image
-            alt={group.name}
+            alt={group.name || "그룹 이미지"}
             src={group.image_url}
             width={400}
             height={200}

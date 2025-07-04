@@ -20,35 +20,15 @@ import {
   markAllNotificationsAsRead,
   deleteNotification,
   getUnreadNotificationCount,
+  NotificationWithDetails,
 } from "@/lib/notifications";
 import { useCallback } from "react";
-
-interface Notification {
-  id: string;
-  target_id: string | null;
-  creator_id: string | null;
-  group_id: string | null;
-  related_id: string;
-  type: string | null;
-  title: string | null;
-  content: string | null;
-  action_url: string | null;
-  is_read: boolean | null;
-  created_at: string | null;
-  expires_at: string | null;
-  users: {
-    nickname: string;
-  } | null;
-  groups: {
-    name: string;
-  } | null;
-}
 
 export default function NotificationsPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { setPageHeader } = usePageHeader();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationWithDetails[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -61,9 +41,7 @@ export default function NotificationsPage() {
 
       if (result.success) {
         setNotifications(
-          (result.data || []).map((notif: any) => ({
-            users: null,
-            groups: null,
+          (result.data || []).map((notif: NotificationWithDetails) => ({
             ...notif,
           }))
         );
@@ -170,7 +148,7 @@ export default function NotificationsPage() {
     }
   };
 
-  const handleNotificationClick = async (notification: Notification) => {
+  const handleNotificationClick = async (notification: NotificationWithDetails) => {
     // 읽지 않은 알림이면 읽음으로 표시
     if (!notification.is_read) {
       await handleMarkAsRead(notification.id);
@@ -219,7 +197,7 @@ export default function NotificationsPage() {
     return new Date(expiresAt) < new Date();
   };
 
-  const NotificationCard = ({ notification }: { notification: Notification }) => {
+  const NotificationCard = ({ notification }: { notification: NotificationWithDetails }) => {
     const expired = isExpired(notification.expires_at);
     const unread = !notification.is_read;
 

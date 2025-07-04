@@ -35,7 +35,28 @@ import {
   createGroupRole,
   updateGroupRole,
   deleteGroupRole,
+  GroupMemberWithDetails,
 } from "@/lib/groups";
+import { Database } from "@/lib/types/types";
+
+// 타입 정의
+type GroupRole = Database["public"]["Tables"]["group_roles"]["Row"];
+type Group = Database["public"]["Tables"]["groups"]["Row"];
+
+interface CreateRoleFormValues {
+  name: string;
+  can_invite: boolean;
+  can_manage_roles: boolean;
+  can_create_form: boolean;
+  can_delete_form: boolean;
+}
+
+interface UpdateRoleFormValues {
+  can_invite: boolean;
+  can_manage_roles: boolean;
+  can_create_form: boolean;
+  can_delete_form: boolean;
+}
 
 export default function GroupDetailPage() {
   const router = useRouter();
@@ -45,14 +66,14 @@ export default function GroupDetailPage() {
   const { message: messageApi } = App.useApp();
   const groupId = params.id as string;
 
-  const [members, setMembers] = useState<any[]>([]);
-  const [roles, setRoles] = useState<any[]>([]);
-  const [group, setGroup] = useState<any>(null);
+  const [members, setMembers] = useState<GroupMemberWithDetails[]>([]);
+  const [roles, setRoles] = useState<GroupRole[]>([]);
+  const [group, setGroup] = useState<Group | null>(null);
   const [loading, setLoading] = useState(true);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
   const [roleModalVisible, setRoleModalVisible] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
-  const [editingRole, setEditingRole] = useState<any>(null);
+  const [editingRole, setEditingRole] = useState<GroupRole | null>(null);
 
   const [inviteForm] = Form.useForm();
   const [roleForm] = Form.useForm();
@@ -98,6 +119,10 @@ export default function GroupDetailPage() {
             id: groupId,
             name: "Group Name", // 실제로는 API에서 가져와야 함
             description: "Group Description",
+            image_url: null,
+            owner_id: null,
+            created_at: null,
+            updated_at: null,
           });
         }
       }
@@ -120,7 +145,7 @@ export default function GroupDetailPage() {
     loadGroupData();
   }, [user, groupId, loadGroupData, router]);
 
-  const handleCreateRole = async (values: any) => {
+  const handleCreateRole = async (values: CreateRoleFormValues) => {
     if (!user) return;
 
     try {
@@ -146,7 +171,7 @@ export default function GroupDetailPage() {
     }
   };
 
-  const handleUpdateRole = async (roleId: string, values: any) => {
+  const handleUpdateRole = async (roleId: string, values: UpdateRoleFormValues) => {
     if (!user) return;
 
     try {
@@ -203,7 +228,7 @@ export default function GroupDetailPage() {
       title: "멤버",
       dataIndex: "users",
       key: "user",
-      render: (user: any) => (
+      render: (user: GroupMemberWithDetails["users"]) => (
         <Space>
           <Avatar icon={<UserAddOutlined />} />
           <div>
@@ -217,7 +242,7 @@ export default function GroupDetailPage() {
       title: "역할",
       dataIndex: "group_roles",
       key: "role",
-      render: (role: any, record: any) => {
+      render: (role: GroupMemberWithDetails["group_roles"], record: GroupMemberWithDetails) => {
         const isOwner = role?.name === "owner";
         return (
           <Space>
@@ -229,7 +254,7 @@ export default function GroupDetailPage() {
                 size="small"
                 value={role?.id}
                 style={{ width: 120 }}
-                onChange={(value) => handleChangeRole(record.id, value)}
+                onChange={(value: string) => handleChangeRole(record.id, value)}
               >
                 {roles.map((r) => (
                   <Select.Option key={r.id} value={r.id}>
@@ -296,7 +321,7 @@ export default function GroupDetailPage() {
     {
       title: "작업",
       key: "actions",
-      render: (_, record: any) => {
+      render: (_: unknown, record: GroupRole) => {
         if (record.name === "owner" || record.name === "member") {
           return <span className="text-gray-400">기본 역할</span>;
         }
@@ -397,7 +422,7 @@ export default function GroupDetailPage() {
           open={inviteModalVisible}
           onCancel={() => setInviteModalVisible(false)}
           groupId={groupId}
-          roles={roles}
+          roles={roles.filter((role) => role.name !== null)}
           inviterId={user.id}
           onSuccess={loadGroupData}
         />
@@ -466,7 +491,7 @@ export default function GroupDetailPage() {
                 can_create_form: editingRole.can_create_form,
                 can_delete_form: editingRole.can_delete_form,
               }}
-              onFinish={(values) => handleUpdateRole(editingRole.id, values)}
+              onFinish={(values: UpdateRoleFormValues) => handleUpdateRole(editingRole.id, values)}
             >
               <Form.Item name="can_invite" valuePropName="checked" label="멤버 초대 권한">
                 <Switch />

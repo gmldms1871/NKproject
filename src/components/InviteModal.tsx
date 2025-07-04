@@ -26,15 +26,16 @@ import {
 import { searchUsers, findUserByIdentifier } from "@/lib/users";
 import { inviteToGroup } from "@/lib/groups";
 import { formatPhoneNumber } from "@/lib/phone-utils";
+import { Database } from "@/lib/types/types";
+
+// 타입 정의
+type GroupRole = Database["public"]["Tables"]["group_roles"]["Row"];
 
 interface InviteModalProps {
   open: boolean;
   onCancel: () => void;
   groupId: string;
-  roles: Array<{
-    id: string;
-    name: string;
-  }>;
+  roles: GroupRole[];
   inviterId: string;
   onSuccess: () => void;
 }
@@ -45,6 +46,11 @@ interface SearchedUser {
   nickname: string;
   email: string;
   phone: string;
+}
+
+interface DirectInviteFormValues {
+  identifier: string;
+  roleId: string;
 }
 
 export default function InviteModal({
@@ -151,7 +157,7 @@ export default function InviteModal({
   };
 
   // 직접 입력으로 초대
-  const handleDirectInvite = async (values: any) => {
+  const handleDirectInvite = async (values: DirectInviteFormValues) => {
     setLoading(true);
     try {
       const inviteData = {
