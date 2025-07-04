@@ -15,32 +15,14 @@ import {
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
-import { acceptGroupInvitation, rejectGroupInvitation } from "@/lib/groups";
+import {
+  acceptGroupInvitation,
+  rejectGroupInvitation,
+  getInvitationDetails,
+  InvitationWithDetails,
+} from "@/lib/groups";
 import { markNotificationAsRead } from "@/lib/notifications";
 import { useCallback } from "react";
-
-interface InvitationDetail {
-  id: string;
-  group_id: string | null;
-  inviter_id: string | null;
-  invitee_email: string | null;
-  invitee_phone: string | null;
-  group_roles_id: string | null;
-  expires_at: string | null;
-  created_at: string | null;
-  groups: {
-    name: string;
-    description: string | null;
-    image_url: string | null;
-  } | null;
-  group_roles: {
-    name: string;
-  } | null;
-  users: {
-    nickname: string;
-    name: string;
-  } | null;
-}
 
 export default function InvitationDetailPage() {
   const router = useRouter();
@@ -52,7 +34,7 @@ export default function InvitationDetailPage() {
 
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-  const [invitation, setInvitation] = useState<InvitationDetail | null>(null);
+  const [invitation, setInvitation] = useState<InvitationWithDetails | null>(null);
   const [notFound, setNotFound] = useState(false);
 
   // 페이지 헤더 설정
@@ -67,40 +49,22 @@ export default function InvitationDetailPage() {
   }, [setPageHeader, invitation]);
 
   const loadInvitationDetail = useCallback(async () => {
+    if (!user || !invitationId) return;
+
     setLoading(true);
     try {
-      // 실제로는 API에서 초대 상세 정보를 가져와야 함
-      // 임시 데이터
-      setTimeout(() => {
-        const mockInvitation: InvitationDetail = {
-          id: invitationId,
-          group_id: "test-group-id",
-          inviter_id: "test-inviter-id",
-          invitee_email: user?.email || null,
-          invitee_phone: null,
-          group_roles_id: "test-role-id",
-          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7일 후
-          created_at: new Date().toISOString(),
-          groups: {
-            name: "개발팀",
-            description:
-              "프론트엔드 개발팀입니다. React, TypeScript를 주로 사용하며 최신 기술 스택으로 프로젝트를 진행합니다.",
-            image_url: null,
-          },
-          group_roles: {
-            name: "개발자",
-          },
-          users: {
-            nickname: "팀장님",
-            name: "김개발",
-          },
-        };
+      const result = await getInvitationDetails(invitationId, user.id);
 
-        setInvitation(mockInvitation);
-        setLoading(false);
-      }, 1000);
+      if (result.success && result.data) {
+        setInvitation(result.data);
+      } else {
+        console.error("초대 정보 조회 실패:", result.error);
+        setNotFound(true);
+      }
     } catch (error) {
+      console.error("초대 정보 조회 중 오류:", error);
       setNotFound(true);
+    } finally {
       setLoading(false);
     }
   }, [invitationId, user]);
@@ -111,13 +75,13 @@ export default function InvitationDetailPage() {
       return;
     }
 
-    // 실제 구현에서는 API에서 초대 상세 정보를 가져와야 함
-    // 여기서는 임시 데이터를 사용
     loadInvitationDetail();
 
     // 알림을 읽음으로 표시 (related_id가 초대 ID인 알림)
     if (invitationId) {
-      markNotificationAsRead(invitationId, user.id);
+      markNotificationAsRead(invitationId, user.id).catch((error) => {
+        console.warn("알림 읽음 처리 실패:", error);
+      });
     }
   }, [user, invitationId, router, loadInvitationDetail]);
 
@@ -133,7 +97,11 @@ export default function InvitationDetailPage() {
 
         // 성공 후 그룹 페이지로 이동
         setTimeout(() => {
-          router.push("/groups");
+          if (invitation?.group_id) {
+            router.push(`/groups/${invitation.group_id}`);
+          } else {
+            router.push("/groups");
+          }
         }, 1500);
       } else {
         messageApi.error(result.error || "초대 수락에 실패했습니다.");

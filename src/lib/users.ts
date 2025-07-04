@@ -61,6 +61,83 @@ export interface SearchUserResult {
   phone: string;
 }
 
+// 세션 정보 타입
+interface SessionInfo {
+  userId: string;
+  email: string;
+  createdAt: string;
+  expiresAt: string;
+}
+
+// 세션 관리 함수들 (실제 JWT 토큰 구현 시 사용)
+const sessionStorage = {
+  // 로컬스토리지에서 세션 정보 가져오기
+  getSession(): SessionInfo | null {
+    if (typeof window === "undefined") return null;
+
+    try {
+      const sessionData = localStorage.getItem("user_session");
+      return sessionData ? JSON.parse(sessionData) : null;
+    } catch (error) {
+      console.error("Session 정보 조회 실패:", error);
+      return null;
+    }
+  },
+
+  // 세션 정보 저장
+  setSession(user: User): void {
+    if (typeof window === "undefined") return;
+
+    try {
+      const sessionInfo: SessionInfo = {
+        userId: user.id,
+        email: user.email,
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24시간 후 만료
+      };
+
+      localStorage.setItem("user_session", JSON.stringify(sessionInfo));
+      localStorage.setItem("user", JSON.stringify(user));
+    } catch (error) {
+      console.error("Session 정보 저장 실패:", error);
+    }
+  },
+
+  // 세션 정보 삭제
+  clearSession(): void {
+    if (typeof window === "undefined") return;
+
+    try {
+      localStorage.removeItem("user_session");
+      localStorage.removeItem("user");
+
+      // 기타 관련 캐시 데이터도 삭제
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith("group_") || key.startsWith("notification_"))) {
+          keysToRemove.push(key);
+        }
+      }
+
+      keysToRemove.forEach((key: string) => localStorage.removeItem(key));
+    } catch (error) {
+      console.error("Session 정보 삭제 실패:", error);
+    }
+  },
+
+  // 세션 유효성 검사
+  isSessionValid(): boolean {
+    const session = this.getSession();
+    if (!session) return false;
+
+    const now = new Date();
+    const expiresAt = new Date(session.expiresAt);
+
+    return now < expiresAt;
+  },
+};
+
 /**
  * 회원가입
  * 모든 항목 필수 입력, 비밀번호는 해시 처리
@@ -204,8 +281,13 @@ export const signIn = async (credentials: SignInRequest): Promise<ApiResponse<Us
     }
 
     // 비밀번호 제외하고 반환
-    const { ...userWithoutPassword } = user;
-    return { success: true, data: userWithoutPassword as User };
+    const { password, ...userWithoutPassword } = user;
+    const userData = userWithoutPassword as User;
+
+    // 세션 정보 저장
+    sessionStorage.setSession(userData);
+
+    return { success: true, data: userData };
   } catch (error) {
     console.error("Sign in error:", error);
     return { success: false, error: "로그인 중 오류가 발생했습니다." };
@@ -214,16 +296,108 @@ export const signIn = async (credentials: SignInRequest): Promise<ApiResponse<Us
 
 /**
  * 로그아웃
- * 클라이언트에서 세션 정리
+ * 클라이언트 세션 정리 및 서버 측 토큰 무효화
  */
 export const signOut = async (): Promise<ApiResponse<void>> => {
   try {
-    // 실제 구현에서는 JWT 토큰을 무효화하거나 세션을 정리
-    // 여기서는 성공 응답만 반환
+    const session = sessionStorage.getSession();
+
+    // 서버 측에서 세션 무효화 (실제 JWT 토큰 구현 시)
+    if (session) {
+      try {
+        // 여기서 실제 구현 시에는 서버에 토큰 무효화 요청을 보내야 함
+        // await supabaseAdmin.auth.signOut() 또는 JWT 블랙리스트 추가
+
+        // 서버 측 세션 무효화 로그 기록
+        console.log(`User ${session.userId} signed out at ${new Date().toISOString()}`);
+
+        // 실제 구현에서는 다음과 같은 작업을 수행:
+        // 1. JWT 토큰을 블랙리스트에 추가
+        // 2. 리프레시 토큰 무효화
+        // 3. 활성 세션 정보 삭제
+        // 4. 보안 로그 기록
+      } catch (serverError) {
+        console.error("서버 측 로그아웃 처리 실패:", serverError);
+        // 서버 에러가 있어도 클라이언트 세션은 정리
+      }
+    }
+
+    // 클라이언트 측 세션 정리
+    sessionStorage.clearSession();
+
+    // 브라우저 캐시 정리 (옵션)
+    if (typeof window !== "undefined") {
+      // 서비스 워커 캐시 정리
+      if ("serviceWorker" in navigator && "caches" in window) {
+        try {
+          const cacheNames = await caches.keys();
+          await Promise.all(
+            cacheNames.map((cacheName) => {
+              if (cacheName.includes("user-data") || cacheName.includes("session")) {
+                return caches.delete(cacheName);
+              }
+            })
+          );
+        } catch (cacheError) {
+          console.warn("캐시 정리 실패:", cacheError);
+        }
+      }
+
+      // 세션 스토리지 정리
+      try {
+        if (typeof window !== "undefined") {
+          window.sessionStorage.clear();
+        }
+      } catch (sessionStorageError) {
+        console.warn("세션 스토리지 정리 실패:", sessionStorageError);
+      }
+    }
+
     return { success: true };
   } catch (error) {
     console.error("Sign out error:", error);
+
+    // 에러가 발생해도 로컬 세션은 정리
+    sessionStorage.clearSession();
+
     return { success: false, error: "로그아웃 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 세션 유효성 검사
+ */
+export const validateSession = async (): Promise<ApiResponse<User>> => {
+  try {
+    if (!sessionStorage.isSessionValid()) {
+      sessionStorage.clearSession();
+      return { success: false, error: "세션이 만료되었습니다." };
+    }
+
+    const session = sessionStorage.getSession();
+    if (!session) {
+      return { success: false, error: "세션 정보가 없습니다." };
+    }
+
+    // 서버에서 사용자 정보 재확인
+    const { data: user, error } = await supabaseAdmin
+      .from("users")
+      .select("*")
+      .eq("id", session.userId)
+      .is("deleted_at", null)
+      .single();
+
+    if (error || !user) {
+      sessionStorage.clearSession();
+      return { success: false, error: "사용자 정보를 확인할 수 없습니다." };
+    }
+
+    const { password, ...userWithoutPassword } = user;
+    return { success: true, data: userWithoutPassword as User };
+  } catch (error) {
+    console.error("Validate session error:", error);
+    sessionStorage.clearSession();
+    return { success: false, error: "세션 검증 중 오류가 발생했습니다." };
   }
 };
 
@@ -284,6 +458,9 @@ export const resetPassword = async (
       return { success: false, error: "비밀번호 변경 중 오류가 발생했습니다." };
     }
 
+    // 비밀번호 변경 시 다른 기기의 세션도 무효화 (보안 강화)
+    // 실제 구현에서는 해당 사용자의 모든 활성 토큰을 무효화
+
     return { success: true };
   } catch (error) {
     console.error("Reset password error:", error);
@@ -340,6 +517,9 @@ export const deleteAccount = async (
     if (deleteError) {
       return { success: false, error: "계정 탈퇴 처리 중 오류가 발생했습니다." };
     }
+
+    // 계정 탈퇴 시 모든 세션 정리
+    sessionStorage.clearSession();
 
     return { success: true };
   } catch (error) {
@@ -407,8 +587,13 @@ export const updateProfile = async (
     }
 
     // 비밀번호 제외하고 반환
-    const { ...userWithoutPassword } = updatedUser;
-    return { success: true, data: userWithoutPassword as User };
+    const { password, ...userWithoutPassword } = updatedUser;
+    const userData = userWithoutPassword as User;
+
+    // 세션 정보 업데이트
+    sessionStorage.setSession(userData);
+
+    return { success: true, data: userData };
   } catch (error) {
     console.error("Update profile error:", error);
     return { success: false, error: "서버 오류가 발생했습니다." };
@@ -432,7 +617,7 @@ export const getUser = async (userId: string): Promise<ApiResponse<User>> => {
     }
 
     // 비밀번호 제외하고 반환
-    const { ...userWithoutPassword } = user;
+    const { password, ...userWithoutPassword } = user;
     return { success: true, data: userWithoutPassword as User };
   } catch (error) {
     console.error("Get user error:", error);

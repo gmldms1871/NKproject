@@ -44,6 +44,7 @@ import {
   deleteGroup,
   leaveGroup,
   transferGroupOwnership,
+  getGroupDetails, // 새로 추가할 API
   GroupMemberWithDetails,
 } from "@/lib/groups";
 import { getAllClasses, ClassWithDetails } from "@/lib/classes";
@@ -52,14 +53,6 @@ import { Database } from "@/lib/types/types";
 // 타입 정의
 type GroupRole = Database["public"]["Tables"]["group_roles"]["Row"];
 type Group = Database["public"]["Tables"]["groups"]["Row"];
-
-interface CreateRoleFormValues {
-  name: string;
-  can_invite: boolean;
-  can_manage_roles: boolean;
-  can_create_form: boolean;
-  can_delete_form: boolean;
-}
 
 interface CreateRoleFormValues {
   name: string;
@@ -111,6 +104,7 @@ export default function GroupDetailPage() {
   const [transferForm] = Form.useForm();
 
   const userRole = members.find((m) => m.users?.id === user?.id)?.group_roles;
+  const isOwner = group?.owner_id === user?.id;
 
   // 페이지 헤더 설정
   useEffect(() => {
@@ -135,35 +129,26 @@ export default function GroupDetailPage() {
 
     setLoading(true);
     try {
-      const [membersResult, rolesResult, classesResult] = await Promise.all([
+      const [groupResult, membersResult, rolesResult, classesResult] = await Promise.all([
+        getGroupDetails(groupId, user.id),
         getGroupMembers(groupId, user.id),
         getGroupRoles(groupId, user.id),
         getAllClasses(groupId, user.id),
       ]);
 
+      if (groupResult.success && groupResult.data) {
+        setGroup(groupResult.data);
+
+        // 설정 폼 초기값 설정
+        settingsForm.setFieldsValue({
+          name: groupResult.data.name,
+          description: groupResult.data.description,
+          image_url: groupResult.data.image_url,
+        });
+      }
+
       if (membersResult.success) {
         setMembers(membersResult.data || []);
-        // 그룹 정보는 멤버 정보에서 추출 (실제로는 별도 API 필요)
-        const groupInfo = membersResult.data?.[0];
-        if (groupInfo) {
-          const mockGroup: Group = {
-            id: groupId,
-            name: "Group Name", // 실제로는 API에서 가져와야 함
-            description: "Group Description",
-            image_url: null,
-            owner_id: groupInfo.users?.id || null, // 실제 소유자 ID
-            created_at: null,
-            updated_at: null,
-          };
-          setGroup(mockGroup);
-
-          // 설정 폼 초기값 설정
-          settingsForm.setFieldsValue({
-            name: mockGroup.name,
-            description: mockGroup.description,
-            image_url: mockGroup.image_url,
-          });
-        }
       }
 
       if (rolesResult.success) {
@@ -325,7 +310,7 @@ export default function GroupDetailPage() {
     }
   };
 
-  // 소유권 이전
+  // 소유권 이전 - 성공 후 즉시 데이터 새로고침
   const handleTransferOwnership = async (values: TransferOwnershipFormValues) => {
     if (!user || !group) return;
 
@@ -336,7 +321,12 @@ export default function GroupDetailPage() {
         messageApi.success("그룹 소유권이 성공적으로 이전되었습니다!");
         setTransferModalVisible(false);
         transferForm.resetFields();
-        loadGroupData();
+
+        // 소유권 이전 후 즉시 모든 데이터 새로고침
+        await loadGroupData();
+
+        // 설정 모달도 닫기 (역할이 바뀌었으므로)
+        setSettingsModalVisible(false);
       } else {
         messageApi.error(result.error || "소유권 이전에 실패했습니다.");
       }
@@ -344,10 +334,6 @@ export default function GroupDetailPage() {
       messageApi.error("소유권 이전 중 오류가 발생했습니다.");
     }
   };
-
-  // 사용자의 권한 확인
-  const isOwner = group?.owner_id === user?.id;
-  const canManageGroup = isOwner;
 
   const membersColumns = [
     {
@@ -369,24 +355,27 @@ export default function GroupDetailPage() {
       dataIndex: "group_roles",
       key: "role",
       render: (role: GroupMemberWithDetails["group_roles"], record: GroupMemberWithDetails) => {
-        const isOwner = role?.name === "owner";
+        const isOwnerRole = role?.name === "owner";
         return (
           <Space>
-            <Tag color={isOwner ? "gold" : "blue"}>
-              {isOwner && <CrownOutlined />} {role?.name}
+            <Tag color={isOwnerRole ? "gold" : "blue"}>
+              {isOwnerRole && <CrownOutlined />} {role?.name}
             </Tag>
-            {userRole?.can_manage_roles && !isOwner && (
+            {userRole?.can_manage_roles && !isOwnerRole && (
               <Select
                 size="small"
                 value={role?.id}
                 style={{ width: 120 }}
                 onChange={(value: string) => handleChangeRole(record.id, value)}
               >
-                {roles.map((r) => (
-                  <Select.Option key={r.id} value={r.id}>
-                    {r.name}
-                  </Select.Option>
-                ))}
+                {/* owner 역할은 제외하고 표시 */}
+                {roles
+                  .filter((r) => r.name !== "owner")
+                  .map((r) => (
+                    <Select.Option key={r.id} value={r.id}>
+                      {r.name}
+                    </Select.Option>
+                  ))}
               </Select>
             )}
           </Space>
@@ -738,7 +727,7 @@ export default function GroupDetailPage() {
           )}
         </Modal>
 
-        {/* 그룹 설정 모달 */}
+        {/* 그룹 설정 모달 - isOwner 상태에 따라 동적으로 렌더링 */}
         <Modal
           title="그룹 설정"
           open={settingsModalVisible}
@@ -871,28 +860,6 @@ export default function GroupDetailPage() {
               </div>
             </div>
           )}
-        </Modal>
-
-        {/* 소유권 이전 확인 모달 */}
-        <Modal
-          title="소유권 이전 확인"
-          open={transferModalVisible}
-          onCancel={() => setTransferModalVisible(false)}
-          footer={null}
-          destroyOnClose
-        >
-          <div className="space-y-4">
-            <p>정말 그룹 소유권을 이전하시겠습니까?</p>
-            <p className="text-sm text-gray-600">
-              소유권을 이전하면 당신은 일반 멤버가 되며, 그룹 관리 권한을 잃게 됩니다.
-            </p>
-            <Space>
-              <Button onClick={() => setTransferModalVisible(false)}>취소</Button>
-              <Button type="primary" danger onClick={() => transferForm.submit()}>
-                이전하기
-              </Button>
-            </Space>
-          </div>
         </Modal>
       </div>
     </div>

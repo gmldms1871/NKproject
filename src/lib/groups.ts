@@ -103,6 +103,7 @@ export interface InvitationWithDetails {
   };
   users: {
     nickname: string;
+    name: string;
   };
 }
 
@@ -110,6 +111,130 @@ export interface InvitationWithDetails {
 export interface GroupWithMembers {
   groups: Group;
 }
+
+/**
+ * 그룹 상세 정보 조회
+ */
+export const getGroupDetails = async (
+  groupId: string,
+  userId: string
+): Promise<ApiResponse<Group>> => {
+  try {
+    // 그룹 멤버인지 확인
+    const { data: memberCheck } = await supabaseAdmin
+      .from("group_member")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .single();
+
+    if (!memberCheck) {
+      return { success: false, error: "그룹 멤버만 그룹 정보를 조회할 수 있습니다." };
+    }
+
+    // 그룹 정보 조회
+    const { data: group, error } = await supabaseAdmin
+      .from("groups")
+      .select("*")
+      .eq("id", groupId)
+      .single();
+
+    if (error || !group) {
+      return { success: false, error: "그룹을 찾을 수 없습니다." };
+    }
+
+    return { success: true, data: group };
+  } catch (error) {
+    console.error("Get group details error:", error);
+    return { success: false, error: "그룹 정보 조회 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 초대 상세 정보 조회
+ */
+export const getInvitationDetails = async (
+  invitationId: string,
+  userId: string
+): Promise<ApiResponse<InvitationWithDetails>> => {
+  try {
+    // 사용자 정보 조회 (이메일/전화번호 확인용)
+    const { data: user } = await supabaseAdmin
+      .from("users")
+      .select("email, phone")
+      .eq("id", userId)
+      .single();
+
+    if (!user) {
+      return { success: false, error: "사용자 정보를 찾을 수 없습니다." };
+    }
+
+    // 초대 상세 정보 조회
+    const { data: invitation, error } = await supabaseAdmin
+      .from("invitations")
+      .select(
+        `
+        *,
+        groups (name, description, image_url),
+        group_roles (name),
+        users!invitations_inviter_id_fkey (nickname, name)
+      `
+      )
+      .eq("id", invitationId)
+      .single();
+
+    if (error || !invitation) {
+      return { success: false, error: "초대를 찾을 수 없습니다." };
+    }
+
+    // 초대 대상자 확인 (이메일 또는 전화번호가 일치하는지)
+    const isTargetUser =
+      (invitation.invitee_email && invitation.invitee_email === user.email) ||
+      (invitation.invitee_phone && invitation.invitee_phone === user.phone);
+
+    if (!isTargetUser) {
+      return { success: false, error: "이 초대의 대상자가 아닙니다." };
+    }
+
+    // 필수 필드 확인 및 타입 안전성 확보
+    if (!invitation.groups || !invitation.group_roles || !invitation.users) {
+      return { success: false, error: "초대 정보가 완전하지 않습니다." };
+    }
+
+    // users 객체에 필수 필드가 있는지 확인
+    if (!invitation.users.nickname || !invitation.users.name) {
+      return { success: false, error: "초대자 정보가 완전하지 않습니다." };
+    }
+
+    const detailedInvitation: InvitationWithDetails = {
+      id: invitation.id,
+      group_id: invitation.group_id || "",
+      inviter_id: invitation.inviter_id || "",
+      invitee_email: invitation.invitee_email || "",
+      invitee_phone: invitation.invitee_phone || "",
+      group_roles_id: invitation.group_roles_id || "",
+      expires_at: invitation.expires_at || "",
+      created_at: invitation.created_at || "",
+      groups: {
+        name: invitation.groups.name || "",
+        description: invitation.groups.description || "",
+        image_url: invitation.groups.image_url || "",
+      },
+      group_roles: {
+        name: invitation.group_roles.name || "",
+      },
+      users: {
+        nickname: invitation.users.nickname,
+        name: invitation.users.name,
+      },
+    };
+
+    return { success: true, data: detailedInvitation };
+  } catch (error) {
+    console.error("Get invitation details error:", error);
+    return { success: false, error: "초대 상세 정보 조회 중 오류가 발생했습니다." };
+  }
+};
 
 /**
  * 그룹 생성
@@ -719,7 +844,7 @@ export const getReceivedInvitations = async (
         *,
         groups (name, description, image_url),
         group_roles (name),
-        users!invitations_inviter_id_fkey (nickname)
+        users!invitations_inviter_id_fkey (nickname, name)
       `
       )
       .or(conditions.join(","))
@@ -729,17 +854,55 @@ export const getReceivedInvitations = async (
       return { success: false, error: "초대 조회에 실패했습니다." };
     }
 
-    // 필수 필드가 null이 아닌 경우만 반환
-    const validInvitations = (invitations || []).filter(
-      (invitation) =>
-        invitation &&
-        invitation.group_id &&
-        invitation.group_roles_id &&
-        invitation.id &&
-        invitation.groups &&
-        invitation.group_roles &&
-        invitation.users
-    ) as InvitationWithDetails[];
+    // 필수 필드가 null이 아닌 경우만 반환하고 타입 안전성 확보
+    const validInvitations: InvitationWithDetails[] = (invitations || [])
+      .filter(
+        (
+          invitation
+        ): invitation is typeof invitation & {
+          group_id: string;
+          group_roles_id: string;
+          id: string;
+          groups: { name: string; description: string; image_url: string };
+          group_roles: { name: string };
+          users: { nickname: string; name: string };
+        } =>
+          Boolean(
+            invitation &&
+              invitation.group_id &&
+              invitation.group_roles_id &&
+              invitation.id &&
+              invitation.groups &&
+              invitation.group_roles &&
+              invitation.users &&
+              invitation.users.nickname &&
+              invitation.users.name
+          )
+      )
+      .map(
+        (invitation): InvitationWithDetails => ({
+          id: invitation.id,
+          group_id: invitation.group_id!,
+          inviter_id: invitation.inviter_id || "",
+          invitee_email: invitation.invitee_email || "",
+          invitee_phone: invitation.invitee_phone || "",
+          group_roles_id: invitation.group_roles_id!,
+          expires_at: invitation.expires_at || "",
+          created_at: invitation.created_at || "",
+          groups: {
+            name: invitation.groups!.name || "",
+            description: invitation.groups!.description || "",
+            image_url: invitation.groups!.image_url || "",
+          },
+          group_roles: {
+            name: invitation.group_roles!.name || "",
+          },
+          users: {
+            nickname: invitation.users!.nickname || "",
+            name: invitation.users!.name || "",
+          },
+        })
+      );
 
     return { success: true, data: validInvitations };
   } catch (error) {

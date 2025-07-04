@@ -2,7 +2,7 @@
 
 import { useState, useEffect, ReactNode } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Layout, Menu, Badge, Avatar, Dropdown, Space, Button } from "antd";
+import { Layout, Menu, Badge, Avatar, Dropdown, Space, Button, message } from "antd";
 import {
   HomeOutlined,
   TeamOutlined,
@@ -33,6 +33,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
   const { user, setUser } = useAuth();
   const { pageHeader } = usePageHeader();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [signingOut, setSigningOut] = useState(false);
 
   const loadUnreadCount = useCallback(async () => {
     if (!user) return;
@@ -54,14 +55,52 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
       // 5분마다 알림 개수 업데이트
       const interval = setInterval(loadUnreadCount, 5 * 60 * 1000);
       return () => clearInterval(interval);
+    } else {
+      // 사용자가 없으면 알림 개수 초기화
+      setUnreadCount(0);
     }
   }, [loadUnreadCount, user]);
 
   const handleSignOut = async () => {
-    const result = await signOut();
-    if (result.success) {
+    if (signingOut) return; // 중복 실행 방지
+
+    setSigningOut(true);
+
+    try {
+      // 서버 측 로그아웃 처리
+      const result = await signOut();
+
+      if (result.success) {
+        // 컨텍스트에서 사용자 정보 제거
+        setUser(null);
+
+        // 상태 초기화
+        setUnreadCount(0);
+
+        // 성공 메시지
+        message.success("안전하게 로그아웃되었습니다.");
+
+        // 홈페이지로 리디렉션
+        router.push("/");
+      } else {
+        // 서버 측 로그아웃 실패 시에도 클라이언트 정리
+        setUser(null);
+        setUnreadCount(0);
+
+        message.warning("로그아웃 처리 중 일부 문제가 발생했지만 로그아웃되었습니다.");
+        router.push("/");
+      }
+    } catch (error) {
+      // 에러 발생 시에도 클라이언트 세션 정리
+      console.error("로그아웃 처리 중 오류:", error);
+
       setUser(null);
+      setUnreadCount(0);
+
+      message.error("로그아웃 처리 중 오류가 발생했지만 로그아웃되었습니다.");
       router.push("/");
+    } finally {
+      setSigningOut(false);
     }
   };
 
@@ -130,8 +169,9 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
     {
       key: "logout",
       icon: <LogoutOutlined />,
-      label: "로그아웃",
+      label: signingOut ? "로그아웃 중..." : "로그아웃",
       onClick: handleSignOut,
+      disabled: signingOut,
     },
   ];
 
@@ -172,6 +212,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
                 <Space className="cursor-pointer hover:bg-gray-100 rounded px-2 py-1">
                   <Avatar size="small" icon={<UserOutlined />} />
                   <span className="text-gray-700">{user.name}</span>
+                  {signingOut && <span className="text-gray-500 text-xs">(로그아웃 중)</span>}
                 </Space>
               </Dropdown>
             ) : (

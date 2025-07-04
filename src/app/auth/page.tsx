@@ -68,7 +68,7 @@ export default function AuthPage() {
       if (result.success && result.data) {
         setUser(result.data);
         message.success(`환영합니다, ${result.data.name}님!`);
-        router.push("/mypage");
+        router.push("/");
       } else {
         message.error(result.error || "로그인에 실패했습니다.");
       }
