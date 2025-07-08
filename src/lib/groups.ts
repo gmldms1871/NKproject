@@ -976,8 +976,10 @@ export const createGroupRole = async (
   }
 };
 
+// src/lib/groups.ts의 updateGroupRole 함수 업데이트
+
 /**
- * 역할 수정
+ * 역할 수정 (이름 수정 지원 추가)
  */
 export const updateGroupRole = async (
   roleId: string,
@@ -994,11 +996,6 @@ export const updateGroupRole = async (
 
     if (!role || !role.group_id) {
       return { success: false, error: "역할을 찾을 수 없습니다." };
-    }
-
-    // 기본 역할 수정 방지
-    if (role.name === "owner" || role.name === "member") {
-      return { success: false, error: "기본 역할은 수정할 수 없습니다." };
     }
 
     // 권한 확인
@@ -1021,9 +1018,45 @@ export const updateGroupRole = async (
       return { success: false, error: "역할 관리 권한이 없습니다." };
     }
 
+    // 이름 변경 시 중복 검사 (이름이 변경되는 경우에만)
+    if (updateData.name && updateData.name !== role.name) {
+      const { data: existingRole } = await supabaseAdmin
+        .from("group_roles")
+        .select("id")
+        .eq("group_id", role.group_id)
+        .eq("name", updateData.name.trim())
+        .neq("id", roleId)
+        .single();
+
+      if (existingRole) {
+        return { success: false, error: "이미 존재하는 역할명입니다." };
+      }
+    }
+
+    // 기본 역할(owner, member)의 경우 권한은 수정할 수 없지만 이름은 수정 가능
+    const isBasicRole = role.name === "owner" || role.name === "member";
+
+    const fieldsToUpdate: Partial<UpdateRoleRequest> = {};
+
+    // 이름은 항상 수정 가능
+    if (updateData.name !== undefined) {
+      fieldsToUpdate.name = updateData.name.trim();
+    }
+
+    // 기본 역할이 아닌 경우에만 권한 수정 가능
+    if (!isBasicRole) {
+      if (updateData.can_invite !== undefined) fieldsToUpdate.can_invite = updateData.can_invite;
+      if (updateData.can_manage_roles !== undefined)
+        fieldsToUpdate.can_manage_roles = updateData.can_manage_roles;
+      if (updateData.can_create_form !== undefined)
+        fieldsToUpdate.can_create_form = updateData.can_create_form;
+      if (updateData.can_delete_form !== undefined)
+        fieldsToUpdate.can_delete_form = updateData.can_delete_form;
+    }
+
     const { data: updatedRole, error } = await supabaseAdmin
       .from("group_roles")
-      .update(updateData)
+      .update(fieldsToUpdate)
       .eq("id", roleId)
       .select()
       .single();
@@ -1426,5 +1459,86 @@ export const checkPendingInvitation = async (
   } catch (error) {
     // 초대가 없는 경우 error가 발생하므로 false 반환
     return { success: true, data: false };
+  }
+};
+
+// src/lib/groups.ts에 추가할 함수
+
+/**
+ * 그룹 멤버 제거 (owner만 가능)
+ */
+export const removeGroupMember = async (
+  groupId: string,
+  memberUserId: string,
+  ownerId: string
+): Promise<ApiResponse<void>> => {
+  try {
+    // 그룹 소유자인지 확인
+    const { data: group } = await supabaseAdmin
+      .from("groups")
+      .select("owner_id")
+      .eq("id", groupId)
+      .single();
+
+    if (!group || group.owner_id !== ownerId) {
+      return { success: false, error: "그룹 소유자만 멤버를 제거할 수 있습니다." };
+    }
+
+    // 자기 자신을 제거하려는 경우 방지
+    if (memberUserId === ownerId) {
+      return {
+        success: false,
+        error: "자기 자신을 제거할 수 없습니다. 소유권을 이전하거나 그룹을 삭제하세요.",
+      };
+    }
+
+    // 멤버가 그룹에 속해있는지 확인
+    const { data: member } = await supabaseAdmin
+      .from("group_member")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("user_id", memberUserId)
+      .single();
+
+    if (!member) {
+      return { success: false, error: "해당 사용자는 이 그룹의 멤버가 아닙니다." };
+    }
+
+    // 멤버와 관련된 데이터 삭제 (관련 클래스 멤버십 등)
+    // 1. 클래스 멤버십 삭제
+    const { data: classList, error: classListError } = await supabaseAdmin
+      .from("classes")
+      .select("id")
+      .eq("group_id", groupId);
+
+    if (classListError) {
+      return { success: false, error: "클래스 목록 조회에 실패했습니다." };
+    }
+
+    const classIds = (classList || []).map((c: { id: string }) => c.id);
+
+    if (classIds.length > 0) {
+      await supabaseAdmin
+        .from("class_members")
+        .delete()
+        .eq("user_id", memberUserId)
+        .in("class_id", classIds);
+    }
+
+    // 2. 그룹 멤버십 삭제
+    const { error } = await supabaseAdmin
+      .from("group_member")
+      .delete()
+      .eq("group_id", groupId)
+      .eq("user_id", memberUserId);
+
+    if (error) {
+      return { success: false, error: "멤버 제거에 실패했습니다." };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Remove group member error:", error);
+    return { success: false, error: "멤버 제거 중 오류가 발생했습니다." };
   }
 };

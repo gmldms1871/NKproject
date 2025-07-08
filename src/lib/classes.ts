@@ -1028,3 +1028,395 @@ export const getClassTags = async (
     return { success: false, error: "반 태그 조회 중 오류가 발생했습니다." };
   }
 };
+
+// src/lib/classes.ts에 추가할 반태그 관련 함수들
+
+// 반태그 생성 요청 타입
+export interface CreateClassTagRequest {
+  name: string;
+  groupId: string;
+}
+
+// 반태그 수정 요청 타입
+export interface UpdateClassTagRequest {
+  name: string;
+}
+
+// 반태그 연결 요청 타입
+export interface LinkClassTagRequest {
+  tagId: string;
+}
+
+/**
+ * 그룹의 모든 반태그 조회
+ */
+export const getGroupClassTags = async (
+  groupId: string,
+  userId: string
+): Promise<ApiResponse<ClassTag[]>> => {
+  try {
+    // 그룹 멤버인지 확인
+    const { data: memberCheck } = await supabaseAdmin
+      .from("group_member")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .single();
+
+    if (!memberCheck) {
+      return { success: false, error: "그룹 멤버만 반태그를 조회할 수 있습니다." };
+    }
+
+    // 그룹의 모든 반에서 사용되는 태그들을 중복 제거하여 조회
+    const { data: tags, error } = await supabaseAdmin
+      .from("class_tags")
+      .select(
+        `
+        id,
+        name,
+        class_id,
+        classes!inner (group_id)
+      `
+      )
+      .eq("classes.group_id", groupId)
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("Get group class tags error:", error);
+      return { success: false, error: "반태그 조회에 실패했습니다." };
+    }
+
+    // 중복된 태그 이름 제거 (같은 이름의 태그가 여러 반에 있을 수 있음)
+    const uniqueTags = Array.from(new Map((tags || []).map((tag) => [tag.name, tag])).values());
+
+    return { success: true, data: uniqueTags };
+  } catch (error) {
+    console.error("Get group class tags error:", error);
+    return { success: false, error: "반태그 조회 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 반태그 생성 (이름 중복 검사)
+ */
+export const createClassTag = async (
+  tagData: CreateClassTagRequest,
+  userId: string
+): Promise<ApiResponse<ClassTag>> => {
+  try {
+    if (!tagData.name || tagData.name.trim() === "") {
+      return { success: false, error: "태그 이름을 입력해주세요." };
+    }
+
+    // 그룹 멤버인지 확인
+    const { data: memberCheck } = await supabaseAdmin
+      .from("group_member")
+      .select("id")
+      .eq("group_id", tagData.groupId)
+      .eq("user_id", userId)
+      .single();
+
+    if (!memberCheck) {
+      return { success: false, error: "그룹 멤버만 반태그를 생성할 수 있습니다." };
+    }
+
+    // 같은 그룹 내에서 태그 이름 중복 검사
+    const { data: existingTags } = await supabaseAdmin
+      .from("class_tags")
+      .select(
+        `
+        id,
+        name,
+        classes!inner (group_id)
+      `
+      )
+      .eq("classes.group_id", tagData.groupId)
+      .eq("name", tagData.name.trim());
+
+    if (existingTags && existingTags.length > 0) {
+      return { success: false, error: "이미 존재하는 태그 이름입니다." };
+    }
+
+    // 임시 반을 생성하여 태그를 만들어야 함 (태그는 반에 종속됨)
+    // 실제로는 태그만 관리하는 별도 테이블이 필요하지만,
+    // 현재 구조에서는 반에 연결된 형태로만 태그 생성 가능
+
+    return {
+      success: false,
+      error: "태그는 반 생성 시에만 만들 수 있습니다. 반을 먼저 생성해주세요.",
+    };
+  } catch (error) {
+    console.error("Create class tag error:", error);
+    return { success: false, error: "반태그 생성 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 반태그 수정
+ */
+export const updateClassTag = async (
+  tagId: string,
+  updateData: UpdateClassTagRequest,
+  userId: string
+): Promise<ApiResponse<ClassTag>> => {
+  try {
+    if (!updateData.name || updateData.name.trim() === "") {
+      return { success: false, error: "태그 이름을 입력해주세요." };
+    }
+
+    // 태그가 속한 반의 그룹 조회
+    const { data: tagInfo } = await supabaseAdmin
+      .from("class_tags")
+      .select(
+        `
+        id,
+        name,
+        class_id,
+        classes!inner (group_id)
+      `
+      )
+      .eq("id", tagId)
+      .single();
+
+    if (!tagInfo) {
+      return { success: false, error: "태그를 찾을 수 없습니다." };
+    }
+
+    // 그룹 멤버인지 확인
+    const { data: memberCheck } = await supabaseAdmin
+      .from("group_member")
+      .select("id")
+      .eq("group_id", tagInfo.classes.group_id!)
+      .eq("user_id", userId)
+      .single();
+
+    if (!memberCheck) {
+      return { success: false, error: "그룹 멤버만 반태그를 수정할 수 있습니다." };
+    }
+
+    // 같은 그룹 내에서 새 이름이 중복되는지 확인
+    const { data: existingTags } = await supabaseAdmin
+      .from("class_tags")
+      .select(
+        `
+        id,
+        name,
+        classes!inner (group_id)
+      `
+      )
+      .eq("classes.group_id", tagInfo.classes.group_id!)
+      .eq("name", updateData.name.trim())
+      .neq("id", tagId);
+
+    if (existingTags && existingTags.length > 0) {
+      return { success: false, error: "이미 존재하는 태그 이름입니다." };
+    }
+
+    // 태그 이름 수정
+    const { data: updatedTag, error } = await supabaseAdmin
+      .from("class_tags")
+      .update({ name: updateData.name.trim() })
+      .eq("id", tagId)
+      .select()
+      .single();
+
+    if (error) {
+      return { success: false, error: "태그 수정에 실패했습니다." };
+    }
+
+    return { success: true, data: updatedTag };
+  } catch (error) {
+    console.error("Update class tag error:", error);
+    return { success: false, error: "반태그 수정 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 반에 기존 태그 연결
+ */
+export const linkTagToClass = async (
+  classId: string,
+  linkData: LinkClassTagRequest,
+  userId: string
+): Promise<ApiResponse<ClassTag>> => {
+  try {
+    // 반 정보 조회
+    const { data: classInfo } = await supabaseAdmin
+      .from("classes")
+      .select("group_id")
+      .eq("id", classId)
+      .single();
+
+    if (!classInfo || !classInfo.group_id) {
+      return { success: false, error: "반을 찾을 수 없습니다." };
+    }
+
+    // 그룹 멤버인지 확인
+    const { data: memberCheck } = await supabaseAdmin
+      .from("group_member")
+      .select("id")
+      .eq("group_id", classInfo.group_id)
+      .eq("user_id", userId)
+      .single();
+
+    if (!memberCheck) {
+      return { success: false, error: "그룹 멤버만 반태그를 연결할 수 있습니다." };
+    }
+
+    // 원본 태그 정보 조회
+    const { data: originalTag } = await supabaseAdmin
+      .from("class_tags")
+      .select("name")
+      .eq("id", linkData.tagId)
+      .single();
+
+    if (!originalTag) {
+      return { success: false, error: "연결할 태그를 찾을 수 없습니다." };
+    }
+
+    // 이미 같은 이름의 태그가 해당 반에 있는지 확인
+    const { data: existingTag } = await supabaseAdmin
+      .from("class_tags")
+      .select("id")
+      .eq("class_id", classId)
+      .eq("name", originalTag.name)
+      .single();
+
+    if (existingTag) {
+      return { success: false, error: "해당 반에 이미 같은 이름의 태그가 있습니다." };
+    }
+
+    // 새로운 태그 생성 (기존 태그를 복사하여 새 반에 연결)
+    const { data: newTag, error } = await supabaseAdmin
+      .from("class_tags")
+      .insert({
+        class_id: classId,
+        name: originalTag.name,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return { success: false, error: "태그 연결에 실패했습니다." };
+    }
+
+    return { success: true, data: newTag };
+  } catch (error) {
+    console.error("Link tag to class error:", error);
+    return { success: false, error: "반태그 연결 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 반태그별 반 검색 (기존 searchClasses 함수에 tagName 조건 추가)
+ */
+export const searchClassesByTag = async (
+  groupId: string,
+  tagName: string,
+  userId: string
+): Promise<ApiResponse<ClassWithDetails[]>> => {
+  try {
+    // 그룹 멤버인지 확인
+    const { data: memberCheck } = await supabaseAdmin
+      .from("group_member")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .single();
+
+    if (!memberCheck) {
+      return { success: false, error: "그룹 멤버만 반을 검색할 수 있습니다." };
+    }
+
+    // 해당 태그를 가진 반들 조회
+    const { data: taggedClasses } = await supabaseAdmin
+      .from("class_tags")
+      .select(
+        `
+        class_id,
+        classes!inner (
+          *,
+          groups (name, description),
+          class_tags (*)
+        )
+      `
+      )
+      .eq("name", tagName)
+      .eq("classes.group_id", groupId);
+
+    if (!taggedClasses || taggedClasses.length === 0) {
+      return { success: true, data: [] };
+    }
+
+    // 각 반의 구성원 수 조회
+    const classesWithDetails: ClassWithDetails[] = await Promise.all(
+      taggedClasses.map(async (taggedClass) => {
+        const classData = taggedClass.classes;
+        const { count } = await supabaseAdmin
+          .from("class_members")
+          .select("*", { count: "exact", head: true })
+          .eq("class_id", classData.id);
+
+        return {
+          ...classData,
+          memberCount: count || 0,
+          groups: classData.groups || null,
+          class_tags: classData.class_tags || [],
+        };
+      })
+    );
+
+    return { success: true, data: classesWithDetails };
+  } catch (error) {
+    console.error("Search classes by tag error:", error);
+    return { success: false, error: "태그별 반 검색 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 반태그 삭제
+ */
+export const deleteClassTag = async (tagId: string, userId: string): Promise<ApiResponse<void>> => {
+  try {
+    // 태그가 속한 반의 그룹 조회
+    const { data: tagInfo } = await supabaseAdmin
+      .from("class_tags")
+      .select(
+        `
+        id,
+        class_id,
+        classes!inner (group_id)
+      `
+      )
+      .eq("id", tagId)
+      .single();
+
+    if (!tagInfo) {
+      return { success: false, error: "태그를 찾을 수 없습니다." };
+    }
+
+    // 그룹 멤버인지 확인
+    const { data: memberCheck } = await supabaseAdmin
+      .from("group_member")
+      .select("id")
+      .eq("group_id", tagInfo.classes.group_id!)
+      .eq("user_id", userId)
+      .single();
+
+    if (!memberCheck) {
+      return { success: false, error: "그룹 멤버만 반태그를 삭제할 수 있습니다." };
+    }
+
+    // 태그 삭제
+    const { error } = await supabaseAdmin.from("class_tags").delete().eq("id", tagId);
+
+    if (error) {
+      return { success: false, error: "태그 삭제에 실패했습니다." };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Delete class tag error:", error);
+    return { success: false, error: "반태그 삭제 중 오류가 발생했습니다." };
+  }
+};
