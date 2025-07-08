@@ -18,6 +18,7 @@ import {
   Switch,
   Empty,
   App,
+  Badge,
 } from "antd";
 import {
   UserAddOutlined,
@@ -29,6 +30,10 @@ import {
   CalendarOutlined,
   TagOutlined,
   PlusOutlined,
+  MailOutlined,
+  PhoneOutlined,
+  ClockCircleOutlined,
+  CloseOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -36,6 +41,8 @@ import InviteModal from "@/components/InviteModal";
 import {
   getGroupMembers,
   getGroupRoles,
+  getSentInvitations,
+  cancelInvitation,
   updateMemberRole,
   createGroupRole,
   updateGroupRole,
@@ -44,8 +51,9 @@ import {
   deleteGroup,
   leaveGroup,
   transferGroupOwnership,
-  getGroupDetails, // 새로 추가할 API
+  getGroupDetails,
   GroupMemberWithDetails,
+  InvitationWithDetails,
 } from "@/lib/groups";
 import { getAllClasses, ClassWithDetails } from "@/lib/classes";
 import { Database } from "@/lib/types/types";
@@ -90,6 +98,7 @@ export default function GroupDetailPage() {
   const [members, setMembers] = useState<GroupMemberWithDetails[]>([]);
   const [roles, setRoles] = useState<GroupRole[]>([]);
   const [classes, setClasses] = useState<ClassWithDetails[]>([]);
+  const [sentInvitations, setSentInvitations] = useState<InvitationWithDetails[]>([]);
   const [group, setGroup] = useState<Group | null>(null);
   const [loading, setLoading] = useState(true);
   const [inviteModalVisible, setInviteModalVisible] = useState(false);
@@ -129,12 +138,14 @@ export default function GroupDetailPage() {
 
     setLoading(true);
     try {
-      const [groupResult, membersResult, rolesResult, classesResult] = await Promise.all([
-        getGroupDetails(groupId, user.id),
-        getGroupMembers(groupId, user.id),
-        getGroupRoles(groupId, user.id),
-        getAllClasses(groupId, user.id),
-      ]);
+      const [groupResult, membersResult, rolesResult, classesResult, invitationsResult] =
+        await Promise.all([
+          getGroupDetails(groupId, user.id),
+          getGroupMembers(groupId, user.id),
+          getGroupRoles(groupId, user.id),
+          getAllClasses(groupId, user.id),
+          getSentInvitations(groupId, user.id),
+        ]);
 
       if (groupResult.success && groupResult.data) {
         setGroup(groupResult.data);
@@ -158,6 +169,10 @@ export default function GroupDetailPage() {
       if (classesResult.success) {
         setClasses(classesResult.data || []);
       }
+
+      if (invitationsResult.success) {
+        setSentInvitations(invitationsResult.data || []);
+      }
     } catch (error) {
       messageApi.error("그룹 정보를 불러오는데 실패했습니다.");
     } finally {
@@ -172,6 +187,24 @@ export default function GroupDetailPage() {
     }
     loadGroupData();
   }, [user, groupId, loadGroupData, router]);
+
+  // 초대 취소
+  const handleCancelInvitation = async (invitationId: string, inviteeInfo: string) => {
+    if (!user) return;
+
+    try {
+      const result = await cancelInvitation(invitationId, user.id);
+
+      if (result.success) {
+        messageApi.success(`${inviteeInfo}님에 대한 초대가 취소되었습니다.`);
+        loadGroupData();
+      } else {
+        messageApi.error(result.error || "초대 취소에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("초대 취소 중 오류가 발생했습니다.");
+    }
+  };
 
   const handleCreateRole = async (values: CreateRoleFormValues) => {
     if (!user) return;
@@ -310,7 +343,7 @@ export default function GroupDetailPage() {
     }
   };
 
-  // 소유권 이전 - 성공 후 즉시 데이터 새로고침
+  // 소유권 이전
   const handleTransferOwnership = async (values: TransferOwnershipFormValues) => {
     if (!user || !group) return;
 
@@ -321,11 +354,7 @@ export default function GroupDetailPage() {
         messageApi.success("그룹 소유권이 성공적으로 이전되었습니다!");
         setTransferModalVisible(false);
         transferForm.resetFields();
-
-        // 소유권 이전 후 즉시 모든 데이터 새로고침
         await loadGroupData();
-
-        // 설정 모달도 닫기 (역할이 바뀌었으므로)
         setSettingsModalVisible(false);
       } else {
         messageApi.error(result.error || "소유권 이전에 실패했습니다.");
@@ -333,6 +362,34 @@ export default function GroupDetailPage() {
     } catch (error) {
       messageApi.error("소유권 이전 중 오류가 발생했습니다.");
     }
+  };
+
+  // 날짜 포맷팅
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return "알 수 없음";
+    return new Date(dateString).toLocaleDateString("ko-KR", {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  // 만료 확인
+  const isExpired = (expiresAt: string | null) => {
+    if (!expiresAt) return false;
+    return new Date(expiresAt) < new Date();
+  };
+
+  // 만료까지 남은 일수
+  const getDaysUntilExpiry = (expiresAt: string | null) => {
+    if (!expiresAt) return null;
+    const now = new Date();
+    const expiry = new Date(expiresAt);
+    const diffTime = expiry.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
   };
 
   const membersColumns = [
@@ -368,7 +425,6 @@ export default function GroupDetailPage() {
                 style={{ width: 120 }}
                 onChange={(value: string) => handleChangeRole(record.id, value)}
               >
-                {/* owner 역할은 제외하고 표시 */}
                 {roles
                   .filter((r) => r.name !== "owner")
                   .map((r) => (
@@ -463,6 +519,91 @@ export default function GroupDetailPage() {
       },
     },
   ];
+
+  // 초대 목록 컬럼
+  const invitationsColumns = [
+    {
+      title: "초대 대상",
+      key: "invitee",
+      render: (_: unknown, record: InvitationWithDetails) => (
+        <div>
+          <div className="font-medium">
+            {record.invitee_email ? (
+              <Space>
+                <MailOutlined />
+                {record.invitee_email}
+              </Space>
+            ) : (
+              <Space>
+                <PhoneOutlined />
+                {record.invitee_phone}
+              </Space>
+            )}
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: "역할",
+      dataIndex: "group_roles",
+      key: "role",
+      render: (role: InvitationWithDetails["group_roles"]) => <Tag color="blue">{role?.name}</Tag>,
+    },
+    {
+      title: "상태",
+      key: "status",
+      render: (_: unknown, record: InvitationWithDetails) => {
+        const expired = isExpired(record.expires_at);
+        const daysUntilExpiry = getDaysUntilExpiry(record.expires_at);
+        const urgent = daysUntilExpiry !== null && daysUntilExpiry <= 2 && daysUntilExpiry > 0;
+
+        if (expired) {
+          return <Tag color="red">만료됨</Tag>;
+        } else if (urgent) {
+          return <Tag color="orange">긴급 ({daysUntilExpiry}일 남음)</Tag>;
+        } else {
+          return <Tag color="green">대기 중</Tag>;
+        }
+      },
+    },
+    {
+      title: "초대일",
+      dataIndex: "created_at",
+      key: "created_at",
+      render: (date: string) => formatDate(date),
+    },
+    {
+      title: "만료일",
+      dataIndex: "expires_at",
+      key: "expires_at",
+      render: (date: string) => formatDate(date),
+    },
+    {
+      title: "작업",
+      key: "actions",
+      render: (_: unknown, record: InvitationWithDetails) => {
+        if (userRole?.can_invite || record.inviter_id === user?.id) {
+          return (
+            <Popconfirm
+              title="이 초대를 취소하시겠습니까?"
+              onConfirm={() =>
+                handleCancelInvitation(record.id, record.invitee_email || record.invitee_phone)
+              }
+            >
+              <Button size="small" danger icon={<CloseOutlined />}>
+                취소
+              </Button>
+            </Popconfirm>
+          );
+        }
+        return null;
+      },
+    },
+  ];
+
+  // 활성 초대와 만료된 초대 분류
+  const activeInvitations = sentInvitations.filter((inv) => !isExpired(inv.expires_at));
+  const expiredInvitations = sentInvitations.filter((inv) => isExpired(inv.expires_at));
 
   const tabItems = [
     {
@@ -598,6 +739,81 @@ export default function GroupDetailPage() {
         </div>
       ),
     },
+    {
+      key: "invitations",
+      label: (
+        <Space>
+          <MailOutlined />
+          초대
+          {activeInvitations.length > 0 && <Badge count={activeInvitations.length} size="small" />}
+        </Space>
+      ),
+      children: (
+        <div>
+          <div className="mb-4 flex justify-between">
+            <h3 className="text-lg font-medium">보낸 초대</h3>
+            {userRole?.can_invite && (
+              <Button
+                type="primary"
+                icon={<UserAddOutlined />}
+                onClick={() => setInviteModalVisible(true)}
+              >
+                새 초대 보내기
+              </Button>
+            )}
+          </div>
+
+          {/* 활성 초대 */}
+          {activeInvitations.length > 0 && (
+            <div className="mb-6">
+              <h4 className="text-md font-medium mb-3 text-green-600">
+                <ClockCircleOutlined className="mr-2" />
+                대기 중인 초대 ({activeInvitations.length})
+              </h4>
+              <Table
+                columns={invitationsColumns}
+                dataSource={activeInvitations}
+                rowKey="id"
+                pagination={false}
+                size="small"
+              />
+            </div>
+          )}
+
+          {/* 만료된 초대 */}
+          {expiredInvitations.length > 0 && (
+            <div>
+              <h4 className="text-md font-medium mb-3 text-red-500">
+                <ClockCircleOutlined className="mr-2" />
+                만료된 초대 ({expiredInvitations.length})
+              </h4>
+              <Table
+                columns={invitationsColumns.filter((col) => col.key !== "actions")}
+                dataSource={expiredInvitations}
+                rowKey="id"
+                pagination={false}
+                size="small"
+                className="opacity-60"
+              />
+            </div>
+          )}
+
+          {sentInvitations.length === 0 && (
+            <Empty description="보낸 초대가 없습니다.">
+              {userRole?.can_invite && (
+                <Button
+                  type="primary"
+                  icon={<UserAddOutlined />}
+                  onClick={() => setInviteModalVisible(true)}
+                >
+                  첫 번째 초대 보내기
+                </Button>
+              )}
+            </Empty>
+          )}
+        </div>
+      ),
+    },
   ];
 
   if (!user) {
@@ -642,7 +858,7 @@ export default function GroupDetailPage() {
             roleForm.resetFields();
           }}
           footer={null}
-          destroyOnHidden
+          destroyOnClose
         >
           <Form form={roleForm} layout="vertical" onFinish={handleCreateRole}>
             <Form.Item
@@ -686,7 +902,7 @@ export default function GroupDetailPage() {
           open={!!editingRole}
           onCancel={() => setEditingRole(null)}
           footer={null}
-          destroyOnHidden
+          destroyOnClose
         >
           {editingRole && (
             <Form
@@ -727,7 +943,7 @@ export default function GroupDetailPage() {
           )}
         </Modal>
 
-        {/* 그룹 설정 모달 - isOwner 상태에 따라 동적으로 렌더링 */}
+        {/* 그룹 설정 모달 */}
         <Modal
           title="그룹 설정"
           open={settingsModalVisible}
@@ -737,7 +953,6 @@ export default function GroupDetailPage() {
           destroyOnClose
         >
           {isOwner ? (
-            // 소유자용 설정
             <Tabs
               items={[
                 {
@@ -831,7 +1046,6 @@ export default function GroupDetailPage() {
               ]}
             />
           ) : (
-            // 일반 멤버용 설정
             <div className="space-y-4">
               <div>
                 <h3 className="text-lg font-medium mb-2">그룹 정보</h3>

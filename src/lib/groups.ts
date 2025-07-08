@@ -1244,3 +1244,187 @@ export const getGroupRoles = async (
     return { success: false, error: "역할 조회 중 오류가 발생했습니다." };
   }
 };
+// src/lib/groups.ts - 파일 끝에 추가할 새로운 함수들
+
+/**
+ * 그룹에서 보낸 초대 목록 조회
+ */
+export const getSentInvitations = async (
+  groupId: string,
+  userId: string
+): Promise<ApiResponse<InvitationWithDetails[]>> => {
+  try {
+    // 그룹 멤버인지 확인
+    const { data: memberCheck } = await supabaseAdmin
+      .from("group_member")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("user_id", userId)
+      .single();
+
+    if (!memberCheck) {
+      return { success: false, error: "그룹 멤버만 조회할 수 있습니다." };
+    }
+
+    // 해당 그룹에서 보낸 모든 초대 조회
+    const { data: invitations, error } = await supabaseAdmin
+      .from("invitations")
+      .select(
+        `
+        *,
+        groups (name, description, image_url),
+        group_roles (name),
+        users!invitations_inviter_id_fkey (nickname, name)
+      `
+      )
+      .eq("group_id", groupId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Get sent invitations error:", error);
+      return { success: false, error: "보낸 초대 조회에 실패했습니다." };
+    }
+
+    // 필수 필드가 null이 아닌 경우만 반환하고 타입 안전성 확보
+    const validInvitations: InvitationWithDetails[] = (invitations || [])
+      .filter(
+        (
+          invitation
+        ): invitation is typeof invitation & {
+          group_id: string;
+          group_roles_id: string;
+          id: string;
+          groups: { name: string; description: string; image_url: string };
+          group_roles: { name: string };
+          users: { nickname: string; name: string };
+        } =>
+          Boolean(
+            invitation &&
+              invitation.group_id &&
+              invitation.group_roles_id &&
+              invitation.id &&
+              invitation.groups &&
+              invitation.group_roles &&
+              invitation.users &&
+              invitation.users.nickname &&
+              invitation.users.name
+          )
+      )
+      .map(
+        (invitation): InvitationWithDetails => ({
+          id: invitation.id,
+          group_id: invitation.group_id!,
+          inviter_id: invitation.inviter_id || "",
+          invitee_email: invitation.invitee_email || "",
+          invitee_phone: invitation.invitee_phone || "",
+          group_roles_id: invitation.group_roles_id!,
+          expires_at: invitation.expires_at || "",
+          created_at: invitation.created_at || "",
+          groups: {
+            name: invitation.groups!.name || "",
+            description: invitation.groups!.description || "",
+            image_url: invitation.groups!.image_url || "",
+          },
+          group_roles: {
+            name: invitation.group_roles!.name || "",
+          },
+          users: {
+            nickname: invitation.users!.nickname || "",
+            name: invitation.users!.name || "",
+          },
+        })
+      );
+
+    return { success: true, data: validInvitations };
+  } catch (error) {
+    console.error("Get sent invitations error:", error);
+    return { success: false, error: "보낸 초대 조회 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 초대 취소
+ */
+export const cancelInvitation = async (
+  invitationId: string,
+  userId: string
+): Promise<ApiResponse<void>> => {
+  try {
+    // 초대 정보 조회
+    const { data: invitation } = await supabaseAdmin
+      .from("invitations")
+      .select("group_id, inviter_id")
+      .eq("id", invitationId)
+      .single();
+
+    if (!invitation) {
+      return { success: false, error: "초대를 찾을 수 없습니다." };
+    }
+
+    // 초대를 보낸 사람이거나 그룹 관리자인지 확인
+    if (invitation.inviter_id !== userId) {
+      // 그룹 멤버이면서 초대 권한이 있는지 확인
+      const { data: member } = await supabaseAdmin
+        .from("group_member")
+        .select(
+          `
+          group_roles (can_invite)
+        `
+        )
+        .eq("group_id", invitation.group_id!)
+        .eq("user_id", userId)
+        .single();
+
+      const memberRole = member as { group_roles: { can_invite: boolean } };
+
+      if (!memberRole?.group_roles?.can_invite) {
+        return { success: false, error: "초대 취소 권한이 없습니다." };
+      }
+    }
+
+    // 초대 삭제
+    const { error } = await supabaseAdmin.from("invitations").delete().eq("id", invitationId);
+
+    if (error) {
+      return { success: false, error: "초대 취소에 실패했습니다." };
+    }
+
+    // 관련 알림도 삭제
+    await supabaseAdmin.from("notifications").delete().eq("related_id", invitationId);
+
+    return { success: true };
+  } catch (error) {
+    console.error("Cancel invitation error:", error);
+    return { success: false, error: "초대 취소 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 특정 사용자가 이미 초대되었는지 확인
+ */
+export const checkPendingInvitation = async (
+  groupId: string,
+  email?: string,
+  phone?: string
+): Promise<ApiResponse<boolean>> => {
+  try {
+    if (!email && !phone) {
+      return { success: false, error: "이메일 또는 전화번호가 필요합니다." };
+    }
+
+    let query = supabaseAdmin.from("invitations").select("id").eq("group_id", groupId);
+
+    if (email) {
+      query = query.eq("invitee_email", email);
+    } else if (phone) {
+      query = query.eq("invitee_phone", phone);
+    }
+
+    const { data: existingInvitation } = await query.single();
+
+    return { success: true, data: !!existingInvitation };
+  } catch (error) {
+    // 초대가 없는 경우 error가 발생하므로 false 반환
+    return { success: true, data: false };
+  }
+};

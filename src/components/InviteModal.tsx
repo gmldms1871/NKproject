@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Modal,
   Form,
@@ -15,6 +15,7 @@ import {
   Spin,
   Tag,
   message,
+  Alert,
 } from "antd";
 import {
   UserOutlined,
@@ -22,10 +23,12 @@ import {
   PhoneOutlined,
   SearchOutlined,
   TeamOutlined,
+  ExclamationCircleOutlined,
 } from "@ant-design/icons";
-import { searchUsers, findUserByIdentifier } from "@/lib/users";
-import { inviteToGroup } from "@/lib/groups";
-import { formatPhoneNumber } from "@/lib/phone-utils";
+import { findUserByIdentifier } from "@/lib/users";
+import { inviteToGroup, checkPendingInvitation } from "@/lib/groups";
+import { formatPhoneNumber, validateFormattedPhone } from "@/lib/phone-utils";
+import { validateEmail } from "@/lib/supabase";
 import { Database } from "@/lib/types/types";
 
 // 타입 정의
@@ -46,9 +49,16 @@ interface SearchedUser {
   nickname: string;
   email: string;
   phone: string;
+  birth_date: string;
+  education: string | null;
 }
 
 interface DirectInviteFormValues {
+  identifier: string;
+  roleId: string;
+}
+
+interface SearchInviteFormValues {
   identifier: string;
   roleId: string;
 }
@@ -65,85 +75,111 @@ export default function InviteModal({
   const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchedUser[]>([]);
-  const [selectedUser, setSelectedUser] = useState<SearchedUser | null>(null);
+  const [foundUser, setFoundUser] = useState<SearchedUser | null>(null);
   const [selectedRole, setSelectedRole] = useState<string>("");
+  const [pendingInvitation, setPendingInvitation] = useState(false);
 
-  const [directForm] = Form.useForm();
+  const [searchForm] = Form.useForm();
+
+  // owner 역할을 제외한 역할들
+  const availableRoles = roles.filter((role) => role.name !== "owner");
 
   // 검색 결과 초기화
   useEffect(() => {
     if (!open) {
       setSearchQuery("");
-      setSearchResults([]);
-      setSelectedUser(null);
+      setFoundUser(null);
       setSelectedRole("");
+      setPendingInvitation(false);
       setActiveTab("search");
-      directForm.resetFields();
+      searchForm.resetFields();
     }
-  }, [open, directForm]);
+  }, [open, searchForm]);
 
-  // 사용자 검색
-  const handleSearch = async (query: string) => {
-    if (!query || query.trim().length < 2) {
-      setSearchResults([]);
-      return;
-    }
-
-    setSearchLoading(true);
-    try {
-      const result = await searchUsers(query);
-
-      if (result.success) {
-        setSearchResults(result.data || []);
-      } else {
-        message.error(result.error || "사용자 검색에 실패했습니다.");
-        setSearchResults([]);
+  // 정확한 이메일/전화번호로 사용자 검색
+  const handleExactSearch = useCallback(
+    async (identifier: string) => {
+      if (!identifier || identifier.trim().length === 0) {
+        setFoundUser(null);
+        setPendingInvitation(false);
+        return;
       }
-    } catch (error) {
-      message.error("사용자 검색 중 오류가 발생했습니다.");
-      setSearchResults([]);
-    } finally {
-      setSearchLoading(false);
-    }
-  };
+
+      const trimmedIdentifier = identifier.trim();
+
+      // 이메일 또는 전화번호 형식 검증
+      const isValidEmail = validateEmail(trimmedIdentifier);
+      const isValidPhone = validateFormattedPhone(trimmedIdentifier);
+
+      if (!isValidEmail && !isValidPhone) {
+        setFoundUser(null);
+        setPendingInvitation(false);
+        return;
+      }
+
+      setSearchLoading(true);
+      try {
+        // 사용자 검색
+        const userResult = await findUserByIdentifier(trimmedIdentifier);
+
+        if (userResult.success && userResult.data) {
+          const userData = userResult.data as SearchedUser;
+          setFoundUser(userData);
+
+          // 이미 초대된 사용자인지 확인
+          const invitationResult = await checkPendingInvitation(
+            groupId,
+            isValidEmail ? trimmedIdentifier : undefined,
+            isValidPhone ? trimmedIdentifier : undefined
+          );
+
+          if (invitationResult.success) {
+            setPendingInvitation(invitationResult.data || false);
+          }
+        } else {
+          setFoundUser(null);
+          setPendingInvitation(false);
+        }
+      } catch (error) {
+        console.error("사용자 검색 오류:", error);
+        setFoundUser(null);
+        setPendingInvitation(false);
+      } finally {
+        setSearchLoading(false);
+      }
+    },
+    [groupId]
+  );
 
   // 검색어 변경 시 디바운싱된 검색 실행
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (searchQuery) {
-        handleSearch(searchQuery);
-      } else {
-        setSearchResults([]);
-      }
-    }, 300);
+      handleExactSearch(searchQuery);
+    }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, groupId, handleExactSearch]);
 
-  // 사용자 선택
-  const handleUserSelect = (user: SearchedUser) => {
-    setSelectedUser(user);
-  };
-
-  // 검색된 사용자로 초대
-  const handleInviteSearchedUser = async () => {
-    if (!selectedUser || !selectedRole) {
-      message.warning("사용자와 역할을 모두 선택해주세요.");
+  // 정확 검색으로 찾은 사용자 초대
+  const handleInviteFoundUser = async () => {
+    if (!foundUser || !selectedRole || pendingInvitation) {
       return;
     }
 
     setLoading(true);
     try {
+      const isEmail = validateEmail(searchQuery.trim());
+
       const result = await inviteToGroup({
         groupId,
-        inviteeEmail: selectedUser.email,
+        inviteeEmail: isEmail ? foundUser.email : undefined,
+        inviteePhone: !isEmail ? foundUser.phone : undefined,
         roleId: selectedRole,
         inviterId,
       });
 
       if (result.success) {
-        message.success(`${selectedUser.nickname}님에게 초대를 전송했습니다!`);
+        message.success(`${foundUser.nickname}님에게 초대를 전송했습니다!`);
         onSuccess();
         onCancel();
       } else {
@@ -160,13 +196,25 @@ export default function InviteModal({
   const handleDirectInvite = async (values: DirectInviteFormValues) => {
     setLoading(true);
     try {
+      // 중복 초대 확인
+      const isEmail = validateEmail(values.identifier);
+      const invitationResult = await checkPendingInvitation(
+        groupId,
+        isEmail ? values.identifier : undefined,
+        !isEmail ? values.identifier : undefined
+      );
+
+      if (invitationResult.success && invitationResult.data) {
+        message.warning("이미 해당 사용자에게 초대를 보냈습니다.");
+        setLoading(false);
+        return;
+      }
+
       const inviteData = {
         groupId,
         roleId: values.roleId,
         inviterId,
-        ...(values.identifier.includes("@")
-          ? { inviteeEmail: values.identifier }
-          : { inviteePhone: values.identifier }),
+        ...(isEmail ? { inviteeEmail: values.identifier } : { inviteePhone: values.identifier }),
       };
 
       const result = await inviteToGroup(inviteData);
@@ -188,7 +236,7 @@ export default function InviteModal({
   // 전화번호 포맷팅 핸들러
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhoneNumber(e.target.value);
-    directForm.setFieldValue("identifier", formatted);
+    searchForm.setFieldValue("identifier", formatted);
   };
 
   const searchTabContent = (
@@ -196,182 +244,97 @@ export default function InviteModal({
       {/* 검색 입력 */}
       <div>
         <Input
-          placeholder="닉네임, 이메일, 전화번호로 검색"
+          placeholder="정확한 이메일 또는 전화번호를 입력하세요"
           prefix={<SearchOutlined />}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           size="large"
+          maxLength={50}
         />
+        <div className="text-xs text-gray-500 mt-1">예: example@email.com 또는 010-1234-5678</div>
       </div>
 
       {/* 검색 결과 */}
-      <div style={{ maxHeight: 300, overflowY: "auto" }}>
+      <div style={{ minHeight: 200 }}>
         {searchLoading ? (
           <div className="text-center py-8">
             <Spin />
             <p className="mt-2 text-gray-500">사용자를 검색하는 중...</p>
           </div>
-        ) : searchResults.length > 0 ? (
-          <List
-            dataSource={searchResults}
-            renderItem={(user) => (
-              <List.Item
-                key={user.id}
-                className={`cursor-pointer hover:bg-gray-50 rounded p-2 ${
-                  selectedUser?.id === user.id ? "bg-blue-50 border border-blue-200" : ""
-                }`}
-                onClick={() => handleUserSelect(user)}
-              >
-                <List.Item.Meta
-                  avatar={<Avatar icon={<UserOutlined />} />}
-                  title={
-                    <div className="flex items-center space-x-2">
-                      <span className="font-medium">{user.name}</span>
-                      <Tag color="blue">@{user.nickname}</Tag>
-                    </div>
-                  }
-                  description={
-                    <div className="space-y-1">
-                      <div className="flex items-center space-x-1 text-sm text-gray-600">
-                        <MailOutlined />
-                        <span>{user.email}</span>
-                      </div>
-                      <div className="flex items-center space-x-1 text-sm text-gray-600">
-                        <PhoneOutlined />
-                        <span>{user.phone}</span>
-                      </div>
-                    </div>
-                  }
-                />
-                {selectedUser?.id === user.id && (
-                  <div className="text-blue-600">
-                    <UserOutlined />
-                  </div>
-                )}
-              </List.Item>
+        ) : foundUser ? (
+          <div className="border rounded-lg p-4 bg-blue-50">
+            {pendingInvitation && (
+              <Alert
+                message="이미 초대된 사용자입니다"
+                description="해당 사용자에게는 이미 초대를 보낸 상태입니다."
+                type="warning"
+                showIcon
+                className="mb-4"
+              />
             )}
-          />
-        ) : searchQuery && !searchLoading ? (
-          <Empty description="검색 결과가 없습니다." />
-        ) : (
-          <Empty description="사용자를 검색해보세요." />
-        )}
-      </div>
 
-      {/* 선택된 사용자 및 역할 선택 */}
-      {selectedUser && (
-        <div className="border-t pt-4">
-          <div className="bg-blue-50 p-3 rounded mb-3">
-            <div className="flex items-center space-x-2">
-              <Avatar icon={<UserOutlined />} />
+            <div className="flex items-center space-x-3 mb-3">
+              <Avatar size={48} icon={<UserOutlined />} />
               <div>
-                <div className="font-medium">
-                  {selectedUser.name} (@{selectedUser.nickname})
-                </div>
-                <div className="text-sm text-gray-600">{selectedUser.email}</div>
+                <div className="font-medium text-lg">{foundUser.name}</div>
+                <div className="text-sm text-gray-600">@{foundUser.nickname}</div>
               </div>
             </div>
-          </div>
 
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium mb-2">역할 선택</label>
-              <Select
-                placeholder="초대할 역할을 선택하세요"
-                value={selectedRole}
-                onChange={setSelectedRole}
-                style={{ width: "100%" }}
-                size="large"
-              >
-                {roles.map((role) => (
-                  <Select.Option key={role.id} value={role.id}>
-                    <TeamOutlined className="mr-2" />
-                    {role.name}
-                  </Select.Option>
-                ))}
-              </Select>
+            {!pendingInvitation && (
+              <div className="mt-4 space-y-3">
+                <div>
+                  <label className="block text-sm font-medium mb-2">역할 선택</label>
+                  <Select
+                    placeholder="초대할 역할을 선택하세요"
+                    value={selectedRole}
+                    onChange={setSelectedRole}
+                    style={{ width: "100%" }}
+                    size="large"
+                  >
+                    역할 선택
+                    {availableRoles.map((role) => (
+                      <Select.Option key={role.id} value={role.id}>
+                        <TeamOutlined className="mr-2" />
+                        {role.name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </div>
+
+                <Button
+                  type="primary"
+                  size="large"
+                  block
+                  loading={loading}
+                  disabled={!selectedRole}
+                  onClick={handleInviteFoundUser}
+                >
+                  초대 보내기
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : searchQuery ? (
+          <div className="text-center py-8">
+            <Empty
+              description="해당하는 사용자를 찾을 수 없습니다."
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            />
+            <div className="text-xs text-gray-500 mt-2">
+              정확한 이메일 주소나 전화번호를 입력해주세요.
             </div>
-
-            <Button
-              type="primary"
-              size="large"
-              block
-              loading={loading}
-              disabled={!selectedRole}
-              onClick={handleInviteSearchedUser}
-            >
-              초대 보내기
-            </Button>
           </div>
-        </div>
-      )}
+        ) : (
+          <div className="text-center py-8">
+            <Empty
+              description="정확한 이메일 또는 전화번호를 입력하세요."
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+            />
+          </div>
+        )}
+      </div>
     </div>
-  );
-
-  const directTabContent = (
-    <Form form={directForm} layout="vertical" onFinish={handleDirectInvite}>
-      <Form.Item
-        name="identifier"
-        label="이메일 또는 전화번호"
-        rules={[
-          { required: true, message: "이메일 또는 전화번호를 입력해주세요!" },
-          {
-            validator: (_, value) => {
-              if (!value) return Promise.resolve();
-
-              const isEmail = value.includes("@");
-              if (isEmail) {
-                const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-                if (!emailRegex.test(value)) {
-                  return Promise.reject(new Error("올바른 이메일 형식이 아닙니다!"));
-                }
-              } else {
-                const phoneRegex = /^01[0-9]-\d{4}-\d{4}$/;
-                if (!phoneRegex.test(value)) {
-                  return Promise.reject(new Error("010-1234-5678 형식으로 입력해주세요!"));
-                }
-              }
-              return Promise.resolve();
-            },
-          },
-        ]}
-      >
-        <Input
-          placeholder="example@email.com 또는 010-1234-5678"
-          prefix={<MailOutlined />}
-          size="large"
-          maxLength={50}
-          onChange={(e) => {
-            const value = e.target.value;
-            // 전화번호인 경우 자동 포맷팅
-            if (value && !value.includes("@") && /^\d/.test(value)) {
-              handlePhoneChange(e);
-            }
-          }}
-        />
-      </Form.Item>
-
-      <Form.Item
-        name="roleId"
-        label="역할"
-        rules={[{ required: true, message: "역할을 선택해주세요!" }]}
-      >
-        <Select placeholder="초대할 역할을 선택하세요" size="large">
-          {roles.map((role) => (
-            <Select.Option key={role.id} value={role.id}>
-              <TeamOutlined className="mr-2" />
-              {role.name}
-            </Select.Option>
-          ))}
-        </Select>
-      </Form.Item>
-
-      <Form.Item>
-        <Button type="primary" htmlType="submit" size="large" block loading={loading}>
-          초대 보내기
-        </Button>
-      </Form.Item>
-    </Form>
   );
 
   const tabItems = [
@@ -384,16 +347,6 @@ export default function InviteModal({
         </Space>
       ),
       children: searchTabContent,
-    },
-    {
-      key: "direct",
-      label: (
-        <Space>
-          <MailOutlined />
-          직접 입력
-        </Space>
-      ),
-      children: directTabContent,
     },
   ];
 
@@ -408,7 +361,7 @@ export default function InviteModal({
     >
       <div className="mb-4">
         <p className="text-gray-600">
-          그룹에 초대할 사용자를 검색하거나 이메일/전화번호를 직접 입력하세요.
+          그룹에 초대할 사용자의 정확한 이메일 주소나 전화번호를 입력하세요.
         </p>
       </div>
 
