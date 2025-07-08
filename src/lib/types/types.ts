@@ -151,29 +151,18 @@ export type Database = {
       }
       class_tags: {
         Row: {
-          class_id: string | null
           id: string
           name: string
         }
         Insert: {
-          class_id?: string | null
           id?: string
           name: string
         }
         Update: {
-          class_id?: string | null
           id?: string
           name?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "class_tags_class_id_fkey"
-            columns: ["class_id"]
-            isOneToOne: false
-            referencedRelation: "classes"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       classes: {
         Row: {
