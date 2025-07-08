@@ -18,6 +18,7 @@ import {
   Col,
   Statistic,
   App,
+  Divider,
 } from "antd";
 import {
   PlusOutlined,
@@ -27,6 +28,7 @@ import {
   UserOutlined,
   CalendarOutlined,
   TagOutlined,
+  ClearOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -34,26 +36,34 @@ import {
   getAllClasses,
   searchClasses,
   filterClasses,
+  searchClassesByTag,
   createClass,
+  getGroupClassTags,
   ClassWithDetails,
   ClassSearchConditions,
   ClassFilterConditions,
 } from "@/lib/classes";
 import { EDUCATION_LEVELS, EducationLevel } from "@/lib/supabase";
+import { Database } from "@/lib/types/types";
+
+// 타입 정의
+type ClassTag = Database["public"]["Tables"]["class_tags"]["Row"];
 
 interface CreateClassFormValues {
   name: string;
   description?: string;
   tags: (string | { label: string; value: string })[];
+  existingTags?: string[];
 }
 
 interface SearchFilterFormValues {
   searchName?: string;
   searchUserId?: string;
-  searchTagId?: string;
+  searchTagName?: string;
   filterEducation?: EducationLevel[];
   filterCreatedAfter?: string;
   filterCreatedBefore?: string;
+  filterByTag?: string;
 }
 
 export default function ClassesListPage() {
@@ -65,6 +75,7 @@ export default function ClassesListPage() {
   const groupId = params.id as string;
 
   const [classes, setClasses] = useState<ClassWithDetails[]>([]);
+  const [tags, setTags] = useState<ClassTag[]>([]);
   const [loading, setLoading] = useState(true);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [searchFilterVisible, setSearchFilterVisible] = useState(false);
@@ -106,21 +117,30 @@ export default function ClassesListPage() {
     return () => setPageHeader(null);
   }, [setPageHeader, groupId, searchFilterVisible]);
 
-  // 반 목록 로드
-  const loadClasses = useCallback(async () => {
+  // 반 목록과 태그 로드
+  const loadClassesAndTags = useCallback(async () => {
     if (!user || !groupId) return;
 
     setLoading(true);
     try {
-      const result = await getAllClasses(groupId, user.id);
+      const [classesResult, tagsResult] = await Promise.all([
+        getAllClasses(groupId, user.id),
+        getGroupClassTags(groupId, user.id),
+      ]);
 
-      if (result.success) {
-        setClasses(result.data || []);
+      if (classesResult.success) {
+        setClasses(classesResult.data || []);
       } else {
-        messageApi.error(result.error || "반 목록을 불러오는데 실패했습니다.");
+        messageApi.error(classesResult.error || "반 목록을 불러오는데 실패했습니다.");
+      }
+
+      if (tagsResult.success) {
+        setTags(tagsResult.data || []);
+      } else {
+        messageApi.error(tagsResult.error || "반 태그를 불러오는데 실패했습니다.");
       }
     } catch (error) {
-      messageApi.error("반 목록을 불러오는 중 오류가 발생했습니다.");
+      messageApi.error("데이터를 불러오는 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -131,8 +151,8 @@ export default function ClassesListPage() {
       router.push("/auth");
       return;
     }
-    loadClasses();
-  }, [user, groupId, loadClasses, router]);
+    loadClassesAndTags();
+  }, [user, groupId, loadClassesAndTags, router]);
 
   // 반 생성
   const handleCreateClass = async (values: CreateClassFormValues) => {
@@ -140,8 +160,8 @@ export default function ClassesListPage() {
 
     setCreateLoading(true);
     try {
-      // tags 값을 안전하게 문자열 배열로 변환
-      const tags = Array.isArray(values.tags)
+      // 새 태그와 기존 태그 결합
+      const newTags = Array.isArray(values.tags)
         ? values.tags.map((tag) => {
             if (typeof tag === "string") return tag;
             if (typeof tag === "object" && tag.label) return tag.label;
@@ -150,18 +170,21 @@ export default function ClassesListPage() {
           })
         : [];
 
+      const existingTags = values.existingTags || [];
+      const allTags = [...newTags, ...existingTags].filter(Boolean);
+
       const result = await createClass(user.id, {
         name: values.name,
         description: values.description,
         groupId,
-        tags: tags,
+        tags: allTags,
       });
 
       if (result.success) {
         messageApi.success("반이 성공적으로 생성되었습니다!");
         setCreateModalVisible(false);
         createForm.resetFields();
-        loadClasses();
+        loadClassesAndTags();
       } else {
         messageApi.error(result.error || "반 생성에 실패했습니다.");
       }
@@ -180,13 +203,24 @@ export default function ClassesListPage() {
     try {
       let result;
 
-      // 검색 조건이 있으면 검색 API 사용
-      if (values.searchName || values.searchUserId || values.searchTagId) {
+      // 태그별 검색이 선택된 경우
+      if (values.filterByTag) {
+        const selectedTag = tags.find((tag) => tag.id === values.filterByTag);
+        if (selectedTag) {
+          result = await searchClassesByTag(groupId, selectedTag.name, user.id);
+        } else {
+          messageApi.error("선택한 태그를 찾을 수 없습니다.");
+          setLoading(false);
+          return;
+        }
+      }
+      // 일반 검색 조건이 있으면 검색 API 사용
+      else if (values.searchName || values.searchUserId || values.searchTagName) {
         const searchConditions: ClassSearchConditions = {
           groupId,
           name: values.searchName,
           userId: values.searchUserId,
-          tagId: values.searchTagId,
+          tagName: values.searchTagName,
         };
         result = await searchClasses(searchConditions, user.id);
       }
@@ -221,7 +255,7 @@ export default function ClassesListPage() {
   // 검색/필터 초기화
   const handleResetSearch = () => {
     searchFilterForm.resetFields();
-    loadClasses();
+    loadClassesAndTags();
   };
 
   // 반 카드 컴포넌트
@@ -322,25 +356,25 @@ export default function ClassesListPage() {
   // 통계 정보
   const totalMembers = classes.reduce((sum, cls) => sum + cls.memberCount, 0);
   const avgMembersPerClass = classes.length > 0 ? Math.round(totalMembers / classes.length) : 0;
-  const allTags = classes.flatMap((cls) => cls.class_tags);
-  const uniqueTags = new Set(allTags.map((tag) => tag.name)).size;
+  const allClassTags = classes.flatMap((cls) => cls.class_tags);
+  const uniqueTags = new Set(allClassTags.map((tag) => tag.name)).size;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* 통계 카드 */}
         <Row gutter={[16, 16]} className="mb-6">
-          <Col xs={24} sm={8}>
+          <Col xs={24} sm={6}>
             <Card>
               <Statistic title="총 반 수" value={classes.length} prefix={<TeamOutlined />} />
             </Card>
           </Col>
-          <Col xs={24} sm={8}>
+          <Col xs={24} sm={6}>
             <Card>
               <Statistic title="총 구성원" value={totalMembers} prefix={<UserOutlined />} />
             </Card>
           </Col>
-          <Col xs={24} sm={8}>
+          <Col xs={24} sm={6}>
             <Card>
               <Statistic
                 title="평균 구성원"
@@ -350,6 +384,11 @@ export default function ClassesListPage() {
               />
             </Card>
           </Col>
+          <Col xs={24} sm={6}>
+            <Card>
+              <Statistic title="반 태그 수" value={tags.length} prefix={<TagOutlined />} />
+            </Card>
+          </Col>
         </Row>
 
         {/* 검색/필터 영역 */}
@@ -357,12 +396,36 @@ export default function ClassesListPage() {
           <Card className="mb-6" title="검색 및 필터">
             <Form form={searchFilterForm} layout="vertical" onFinish={handleSearchFilter}>
               <Row gutter={[16, 16]}>
+                {/* 검색 조건 */}
                 <Col xs={24} md={8}>
                   <Form.Item name="searchName" label="반 이름 검색">
                     <Input placeholder="반 이름으로 검색" prefix={<SearchOutlined />} />
                   </Form.Item>
                 </Col>
 
+                <Col xs={24} md={8}>
+                  <Form.Item name="searchTagName" label="태그 이름 검색">
+                    <Input placeholder="태그 이름으로 검색" prefix={<TagOutlined />} />
+                  </Form.Item>
+                </Col>
+
+                <Col xs={24} md={8}>
+                  <Form.Item name="filterByTag" label="특정 태그로 필터링">
+                    <Select placeholder="태그 선택" allowClear showSearch>
+                      {tags.map((tag) => (
+                        <Select.Option key={tag.id} value={tag.id}>
+                          <Tag color="blue">{tag.name}</Tag>
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
+              <Divider />
+
+              <Row gutter={[16, 16]}>
+                {/* 고급 필터 */}
                 <Col xs={24} md={8}>
                   <Form.Item name="filterEducation" label="교육 수준 필터">
                     <Select mode="multiple" placeholder="교육 수준 선택" allowClear>
@@ -376,17 +439,59 @@ export default function ClassesListPage() {
                 </Col>
 
                 <Col xs={24} md={8}>
-                  <Form.Item label="작업">
-                    <Space>
-                      <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
-                        적용
-                      </Button>
-                      <Button onClick={handleResetSearch}>초기화</Button>
-                    </Space>
+                  <Form.Item name="filterCreatedAfter" label="생성일 이후">
+                    <Input type="date" />
+                  </Form.Item>
+                </Col>
+
+                <Col xs={24} md={8}>
+                  <Form.Item name="filterCreatedBefore" label="생성일 이전">
+                    <Input type="date" />
                   </Form.Item>
                 </Col>
               </Row>
+
+              <Row gutter={[16, 16]}>
+                <Col xs={24}>
+                  <Space>
+                    <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
+                      검색/필터 적용
+                    </Button>
+                    <Button onClick={handleResetSearch} icon={<ClearOutlined />}>
+                      초기화
+                    </Button>
+                  </Space>
+                </Col>
+              </Row>
             </Form>
+          </Card>
+        )}
+
+        {/* 태그 빠른 필터 */}
+        {tags.length > 0 && (
+          <Card className="mb-6" size="small">
+            <div className="flex items-center space-x-2 mb-2">
+              <TagOutlined />
+              <span className="font-medium">빠른 태그 필터:</span>
+            </div>
+            <Space wrap>
+              <Button size="small" onClick={() => loadClassesAndTags()}>
+                전체
+              </Button>
+              {tags.map((tag) => (
+                <Button
+                  key={tag.id}
+                  size="small"
+                  type="dashed"
+                  onClick={() => {
+                    searchFilterForm.setFieldValue("filterByTag", tag.id);
+                    handleSearchFilter({ filterByTag: tag.id });
+                  }}
+                >
+                  {tag.name}
+                </Button>
+              ))}
+            </Space>
           </Card>
         )}
 
@@ -422,6 +527,7 @@ export default function ClassesListPage() {
           }}
           footer={null}
           destroyOnClose
+          width={600}
         >
           <Form form={createForm} layout="vertical" onFinish={handleCreateClass}>
             <Form.Item
@@ -443,13 +549,36 @@ export default function ClassesListPage() {
               <Input.TextArea rows={3} placeholder="반에 대한 설명을 입력하세요" />
             </Form.Item>
 
-            <Form.Item name="tags" label="태그 (선택사항)">
+            <Divider>태그 설정</Divider>
+
+            <Form.Item name="existingTags" label="기존 태그 선택">
+              <Select
+                mode="multiple"
+                placeholder="기존 태그에서 선택하세요"
+                style={{ width: "100%" }}
+                allowClear
+              >
+                {tags.map((tag) => (
+                  <Select.Option key={tag.id} value={tag.name}>
+                    <Tag color="blue">{tag.name}</Tag>
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+
+            <Form.Item name="tags" label="새 태그 생성 (선택사항)">
               <Select
                 mode="tags"
-                placeholder="태그를 입력하세요 (Enter로 추가)"
+                placeholder="새 태그를 입력하세요 (Enter로 추가)"
                 style={{ width: "100%" }}
+                tokenSeparators={[","]}
               />
             </Form.Item>
+
+            <div className="text-xs text-gray-500 mb-4">
+              * 기존 태그와 새 태그를 함께 사용할 수 있습니다.
+              <br />* 동일한 이름의 태그가 있으면 기존 태그를 사용합니다.
+            </div>
 
             <Form.Item>
               <Space>
