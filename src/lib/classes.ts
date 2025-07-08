@@ -8,7 +8,13 @@ type ClassMember = Database["public"]["Tables"]["class_members"]["Row"];
 type ClassMemberInsert = Database["public"]["Tables"]["class_members"]["Insert"];
 type ClassTag = Database["public"]["Tables"]["class_tags"]["Row"];
 type ClassTagInsert = Database["public"]["Tables"]["class_tags"]["Insert"];
+type ClassTagLink = Database["public"]["Tables"]["class_tag_links"]["Row"];
+type ClassTagLinkInsert = Database["public"]["Tables"]["class_tag_links"]["Insert"];
 type User = Database["public"]["Tables"]["users"]["Row"];
+
+interface TagLinkWithClassTag {
+  class_tags: ClassTag;
+}
 
 // API 응답 타입 정의
 export interface ApiResponse<T = unknown> {
@@ -37,6 +43,7 @@ export interface ClassSearchConditions {
   name?: string;
   userId?: string;
   tagId?: string;
+  tagName?: string;
   groupId?: string;
 }
 
@@ -44,6 +51,7 @@ export interface ClassSearchConditions {
 export interface ClassFilterConditions {
   education?: EducationLevel[];
   groupId?: string;
+  tagNames?: string[];
   createdAfter?: string;
   createdBefore?: string;
 }
@@ -71,7 +79,7 @@ export interface ClassMemberWithDetails {
   } | null;
 }
 
-// 반 상세 정보 타입
+// 반 상세 정보 타입 (연결된 태그 포함)
 export interface ClassWithDetails {
   id: string;
   name: string;
@@ -87,20 +95,25 @@ export interface ClassWithDetails {
   memberCount: number;
 }
 
-// 반 태그와 함께
-export interface ClassWithTags {
-  id: string;
+// 반태그 생성 요청 타입
+export interface CreateClassTagRequest {
   name: string;
-  description: string | null;
-  group_id: string;
-  created_at: string;
-  updated_at: string | null;
-  class_tags: ClassTag[];
+  groupId: string;
+}
+
+// 반태그 수정 요청 타입
+export interface UpdateClassTagRequest {
+  name: string;
+}
+
+// 반태그 연결 요청 타입
+export interface LinkClassTagRequest {
+  tagId: string;
 }
 
 /**
  * 반 생성
- * 그룹 멤버만 가능, 이름 중복 검사, 태그 자동 생성
+ * 그룹 멤버만 가능, 이름 중복 검사, 태그 자동 생성 및 연결
  */
 export const createClass = async (
   userId: string,
@@ -150,19 +163,48 @@ export const createClass = async (
       return { success: false, error: "반 생성에 실패했습니다." };
     }
 
-    // 태그 생성
+    // 태그 생성 및 연결
     if (classData.tags && classData.tags.length > 0) {
-      const tagInserts: ClassTagInsert[] = classData.tags.map((tag) => ({
-        class_id: newClass.id,
-        name: tag.trim(),
-      }));
+      try {
+        for (const tagName of classData.tags) {
+          if (!tagName.trim()) continue;
 
-      const { error: tagError } = await supabaseAdmin.from("class_tags").insert(tagInserts);
+          // 같은 그룹 내에서 태그 이름 중복 확인
+          const { data: existingTag } = await supabaseAdmin
+            .from("class_tags")
+            .select("id")
+            .eq("name", tagName.trim())
+            .single();
 
-      if (tagError) {
-        // 반 생성 롤백
-        await supabaseAdmin.from("classes").delete().eq("id", newClass.id);
-        return { success: false, error: "태그 생성에 실패했습니다." };
+          let tagId: string;
+
+          if (existingTag) {
+            // 기존 태그 사용
+            tagId = existingTag.id;
+          } else {
+            // 새 태그 생성
+            const { data: newTag, error: tagError } = await supabaseAdmin
+              .from("class_tags")
+              .insert({ name: tagName.trim() })
+              .select()
+              .single();
+
+            if (tagError || !newTag) {
+              console.error("Tag creation error:", tagError);
+              continue;
+            }
+            tagId = newTag.id;
+          }
+
+          // 반과 태그 연결
+          await supabaseAdmin.from("class_tag_links").insert({
+            class_id: newClass.id,
+            tag_id: tagId,
+          });
+        }
+      } catch (tagError) {
+        // 태그 처리 실패 시 반은 유지하고 경고만 출력
+        console.error("Tag processing error:", tagError);
       }
     }
 
@@ -215,15 +257,15 @@ export const deleteClass = async (classId: string, userId: string): Promise<ApiR
       return { success: false, error: "반 구성원 삭제에 실패했습니다." };
     }
 
-    // 2. 반 태그 삭제
-    const { error: tagsError } = await supabaseAdmin
-      .from("class_tags")
+    // 2. 반-태그 연결 삭제
+    const { error: tagLinksError } = await supabaseAdmin
+      .from("class_tag_links")
       .delete()
       .eq("class_id", classId);
 
-    if (tagsError) {
-      console.error("Delete class tags error:", tagsError);
-      return { success: false, error: "반 태그 삭제에 실패했습니다." };
+    if (tagLinksError) {
+      console.error("Delete class tag links error:", tagLinksError);
+      return { success: false, error: "반 태그 연결 삭제에 실패했습니다." };
     }
 
     // 3. form_responses 삭제 (class_id가 있는 경우)
@@ -253,7 +295,7 @@ export const deleteClass = async (classId: string, userId: string): Promise<ApiR
 };
 
 /**
- * 반 검색 (이름, 사용자ID, 태그ID로 검색)
+ * 반 검색 (이름, 사용자ID, 태그ID/이름으로 검색)
  */
 export const searchClasses = async (
   searchConditions: ClassSearchConditions,
@@ -281,8 +323,7 @@ export const searchClasses = async (
       .select(
         `
         *,
-        groups (name, description),
-        class_tags (*)
+        groups (name, description)
       `
       )
       .eq("group_id", searchConditions.groupId);
@@ -309,7 +350,6 @@ export const searchClasses = async (
           return { success: true, data: [] };
         }
       } else {
-        // 해당 사용자가 속한 반이 없음
         return { success: true, data: [] };
       }
     }
@@ -317,21 +357,43 @@ export const searchClasses = async (
     // 태그 ID로 검색
     if (searchConditions.tagId) {
       const { data: taggedClasses } = await supabaseAdmin
-        .from("class_tags")
+        .from("class_tag_links")
         .select("class_id")
-        .eq("id", searchConditions.tagId);
+        .eq("tag_id", searchConditions.tagId);
 
       if (taggedClasses && taggedClasses.length > 0) {
-        const classIds = taggedClasses
-          .map((t) => t.class_id)
-          .filter((id): id is string => id !== null);
+        const classIds = taggedClasses.map((t) => t.class_id);
         if (classIds.length > 0) {
           query = query.in("id", classIds);
         } else {
           return { success: true, data: [] };
         }
       } else {
-        // 해당 태그가 있는 반이 없음
+        return { success: true, data: [] };
+      }
+    }
+
+    // 태그 이름으로 검색
+    if (searchConditions.tagName) {
+      const { data: tagData } = await supabaseAdmin
+        .from("class_tags")
+        .select("id")
+        .eq("name", searchConditions.tagName)
+        .single();
+
+      if (tagData) {
+        const { data: taggedClasses } = await supabaseAdmin
+          .from("class_tag_links")
+          .select("class_id")
+          .eq("tag_id", tagData.id);
+
+        if (taggedClasses && taggedClasses.length > 0) {
+          const classIds = taggedClasses.map((t) => t.class_id);
+          query = query.in("id", classIds);
+        } else {
+          return { success: true, data: [] };
+        }
+      } else {
         return { success: true, data: [] };
       }
     }
@@ -343,19 +405,33 @@ export const searchClasses = async (
       return { success: false, error: "반 검색에 실패했습니다." };
     }
 
-    // 각 반의 구성원 수 조회
+    // 각 반의 구성원 수와 태그 조회
     const classesWithDetails: ClassWithDetails[] = await Promise.all(
       (classes || []).map(async (classItem) => {
-        const { count } = await supabaseAdmin
-          .from("class_members")
-          .select("*", { count: "exact", head: true })
-          .eq("class_id", classItem.id);
+        const [memberCountResult, tagsResult] = await Promise.all([
+          supabaseAdmin
+            .from("class_members")
+            .select("*", { count: "exact", head: true })
+            .eq("class_id", classItem.id),
+          supabaseAdmin
+            .from("class_tag_links")
+            .select(
+              `
+              class_tags (*)
+            `
+            )
+            .eq("class_id", classItem.id),
+        ]);
+
+        const tags = (tagsResult.data || [])
+          .map((link: TagLinkWithClassTag) => link.class_tags)
+          .filter(Boolean);
 
         return {
           ...classItem,
-          memberCount: count || 0,
+          memberCount: memberCountResult.count || 0,
           groups: classItem.groups || null,
-          class_tags: classItem.class_tags || [],
+          class_tags: tags || [],
         };
       })
     );
@@ -368,7 +444,7 @@ export const searchClasses = async (
 };
 
 /**
- * 반 필터링 (교육 수준, 생성일 등으로 필터링)
+ * 반 필터링 (교육 수준, 생성일, 태그 이름 등으로 필터링)
  */
 export const filterClasses = async (
   filterConditions: ClassFilterConditions,
@@ -396,8 +472,7 @@ export const filterClasses = async (
       .select(
         `
         *,
-        groups (name, description),
-        class_tags (*)
+        groups (name, description)
       `
       )
       .eq("group_id", filterConditions.groupId);
@@ -409,6 +484,31 @@ export const filterClasses = async (
 
     if (filterConditions.createdBefore) {
       query = query.lte("created_at", filterConditions.createdBefore);
+    }
+
+    // 태그 이름으로 필터링
+    if (filterConditions.tagNames && filterConditions.tagNames.length > 0) {
+      const { data: tagsData } = await supabaseAdmin
+        .from("class_tags")
+        .select("id")
+        .in("name", filterConditions.tagNames);
+
+      if (tagsData && tagsData.length > 0) {
+        const tagIds = tagsData.map((tag) => tag.id);
+        const { data: taggedClasses } = await supabaseAdmin
+          .from("class_tag_links")
+          .select("class_id")
+          .in("tag_id", tagIds);
+
+        if (taggedClasses && taggedClasses.length > 0) {
+          const classIds = [...new Set(taggedClasses.map((t) => t.class_id))];
+          query = query.in("id", classIds);
+        } else {
+          return { success: true, data: [] };
+        }
+      } else {
+        return { success: true, data: [] };
+      }
     }
 
     const { data: classes, error } = await query.order("created_at", { ascending: false });
@@ -452,19 +552,35 @@ export const filterClasses = async (
       filteredClasses = classesWithEducationFilter.filter(Boolean) as typeof filteredClasses;
     }
 
-    // 각 반의 구성원 수 조회
+    // 각 반의 구성원 수와 태그 조회
     const classesWithDetails: ClassWithDetails[] = await Promise.all(
       filteredClasses.map(async (classItem) => {
-        const { count } = await supabaseAdmin
-          .from("class_members")
-          .select("*", { count: "exact", head: true })
-          .eq("class_id", classItem.id);
+        const [memberCountResult, tagsResult] = await Promise.all([
+          supabaseAdmin
+            .from("class_members")
+            .select("*", { count: "exact", head: true })
+            .eq("class_id", classItem.id),
+          supabaseAdmin
+            .from("class_tag_links")
+            .select(
+              `
+              class_tags (*)
+            `
+            )
+            .eq("class_id", classItem.id),
+        ]);
+        interface TagLinkWithClassTag {
+          class_tags: ClassTag;
+        }
+        const tags = (tagsResult.data || [])
+          .map((link: TagLinkWithClassTag) => link.class_tags)
+          .filter(Boolean);
 
         return {
           ...classItem,
-          memberCount: count || 0,
+          memberCount: memberCountResult.count || 0,
           groups: classItem.groups || null,
-          class_tags: classItem.class_tags || [],
+          class_tags: tags || [],
         };
       })
     );
@@ -501,8 +617,7 @@ export const getAllClasses = async (
       .select(
         `
         *,
-        groups (name, description),
-        class_tags (*)
+        groups (name, description)
       `
       )
       .eq("group_id", groupId)
@@ -513,19 +628,33 @@ export const getAllClasses = async (
       return { success: false, error: "반 조회에 실패했습니다." };
     }
 
-    // 각 반의 구성원 수 조회
+    // 각 반의 구성원 수와 태그 조회
     const classesWithDetails: ClassWithDetails[] = await Promise.all(
       (classes || []).map(async (classItem) => {
-        const { count } = await supabaseAdmin
-          .from("class_members")
-          .select("*", { count: "exact", head: true })
-          .eq("class_id", classItem.id);
+        const [memberCountResult, tagsResult] = await Promise.all([
+          supabaseAdmin
+            .from("class_members")
+            .select("*", { count: "exact", head: true })
+            .eq("class_id", classItem.id),
+          supabaseAdmin
+            .from("class_tag_links")
+            .select(
+              `
+              class_tags (*)
+            `
+            )
+            .eq("class_id", classItem.id),
+        ]);
+
+        const tags = (tagsResult.data || [])
+          .map((link: TagLinkWithClassTag) => link.class_tags)
+          .filter(Boolean);
 
         return {
           ...classItem,
-          memberCount: count || 0,
+          memberCount: memberCountResult.count || 0,
           groups: classItem.groups || null,
-          class_tags: classItem.class_tags || [],
+          class_tags: tags || [],
         };
       })
     );
@@ -602,21 +731,45 @@ export const updateClass = async (
 
     // 태그 업데이트
     if (updateData.tags !== undefined) {
-      // 기존 태그 삭제
-      await supabaseAdmin.from("class_tags").delete().eq("class_id", classId);
+      // 기존 태그 연결 삭제
+      await supabaseAdmin.from("class_tag_links").delete().eq("class_id", classId);
 
-      // 새 태그 추가
+      // 새 태그 추가 및 연결
       if (updateData.tags.length > 0) {
-        const tagInserts: ClassTagInsert[] = updateData.tags.map((tag) => ({
-          class_id: classId,
-          name: tag.trim(),
-        }));
+        for (const tagName of updateData.tags) {
+          if (!tagName.trim()) continue;
 
-        const { error: tagError } = await supabaseAdmin.from("class_tags").insert(tagInserts);
+          // 태그 존재 확인
+          const { data: existingTag } = await supabaseAdmin
+            .from("class_tags")
+            .select("id")
+            .eq("name", tagName.trim())
+            .single();
 
-        if (tagError) {
-          console.error("Update tags error:", tagError);
-          // 태그 업데이트 실패는 전체 실패로 처리하지 않음
+          let tagId: string;
+
+          if (existingTag) {
+            tagId = existingTag.id;
+          } else {
+            // 새 태그 생성
+            const { data: newTag, error: tagError } = await supabaseAdmin
+              .from("class_tags")
+              .insert({ name: tagName.trim() })
+              .select()
+              .single();
+
+            if (tagError || !newTag) {
+              console.error("Tag creation error:", tagError);
+              continue;
+            }
+            tagId = newTag.id;
+          }
+
+          // 반과 태그 연결
+          await supabaseAdmin.from("class_tag_links").insert({
+            class_id: classId,
+            tag_id: tagId,
+          });
         }
       }
     }
@@ -937,8 +1090,7 @@ export const getClassDetails = async (
       .select(
         `
         *,
-        groups (name, description),
-        class_tags (*)
+        groups (name, description)
       `
       )
       .eq("id", classId)
@@ -960,17 +1112,31 @@ export const getClassDetails = async (
       return { success: false, error: "그룹 멤버만 반을 조회할 수 있습니다." };
     }
 
-    // 구성원 수 조회
-    const { count } = await supabaseAdmin
-      .from("class_members")
-      .select("*", { count: "exact", head: true })
-      .eq("class_id", classId);
+    // 구성원 수와 태그 조회
+    const [memberCountResult, tagsResult] = await Promise.all([
+      supabaseAdmin
+        .from("class_members")
+        .select("*", { count: "exact", head: true })
+        .eq("class_id", classId),
+      supabaseAdmin
+        .from("class_tag_links")
+        .select(
+          `
+          class_tags (*)
+        `
+        )
+        .eq("class_id", classId),
+    ]);
+
+    const tags = (tagsResult.data || [])
+      .map((link: TagLinkWithClassTag) => link.class_tags)
+      .filter(Boolean);
 
     const classWithDetails: ClassWithDetails = {
       ...classData,
-      memberCount: count || 0,
+      memberCount: memberCountResult.count || 0,
       groups: classData.groups || null,
-      class_tags: classData.class_tags || [],
+      class_tags: tags || [],
     };
 
     return { success: true, data: classWithDetails };
@@ -981,7 +1147,7 @@ export const getClassDetails = async (
 };
 
 /**
- * 반 태그 조회
+ * 반 태그 조회 (특정 반의 태그들)
  */
 export const getClassTags = async (
   classId: string,
@@ -1011,41 +1177,30 @@ export const getClassTags = async (
       return { success: false, error: "그룹 멤버만 반 태그를 조회할 수 있습니다." };
     }
 
-    const { data: tags, error } = await supabaseAdmin
-      .from("class_tags")
-      .select("*")
-      .eq("class_id", classId)
-      .order("name", { ascending: true });
+    const { data: tagLinks, error } = await supabaseAdmin
+      .from("class_tag_links")
+      .select(
+        `
+        class_tags (*)
+      `
+      )
+      .eq("class_id", classId);
 
     if (error) {
       console.error("Get class tags error:", error);
       return { success: false, error: "반 태그 조회에 실패했습니다." };
     }
 
-    return { success: true, data: tags || [] };
+    const tags = (tagLinks || [])
+      .map((link: TagLinkWithClassTag) => link.class_tags)
+      .filter(Boolean);
+
+    return { success: true, data: tags };
   } catch (error) {
     console.error("Get class tags error:", error);
     return { success: false, error: "반 태그 조회 중 오류가 발생했습니다." };
   }
 };
-
-// src/lib/classes.ts에 추가할 반태그 관련 함수들
-
-// 반태그 생성 요청 타입
-export interface CreateClassTagRequest {
-  name: string;
-  groupId: string;
-}
-
-// 반태그 수정 요청 타입
-export interface UpdateClassTagRequest {
-  name: string;
-}
-
-// 반태그 연결 요청 타입
-export interface LinkClassTagRequest {
-  tagId: string;
-}
 
 /**
  * 그룹의 모든 반태그 조회
@@ -1067,27 +1222,39 @@ export const getGroupClassTags = async (
       return { success: false, error: "그룹 멤버만 반태그를 조회할 수 있습니다." };
     }
 
-    // 그룹의 모든 반에서 사용되는 태그들을 중복 제거하여 조회
-    const { data: tags, error } = await supabaseAdmin
-      .from("class_tags")
+    // 그룹의 모든 반 조회
+    const { data: groupClasses } = await supabaseAdmin
+      .from("classes")
+      .select("id")
+      .eq("group_id", groupId);
+
+    if (!groupClasses || groupClasses.length === 0) {
+      return { success: true, data: [] };
+    }
+
+    const classIds = groupClasses.map((cls) => cls.id);
+
+    // 그룹의 반들에 연결된 모든 태그들 조회
+    const { data: tagLinks, error } = await supabaseAdmin
+      .from("class_tag_links")
       .select(
         `
-        id,
-        name,
-        class_id,
-        classes!inner (group_id)
+        class_tags (*)
       `
       )
-      .eq("classes.group_id", groupId)
-      .order("name", { ascending: true });
+      .in("class_id", classIds);
 
     if (error) {
       console.error("Get group class tags error:", error);
       return { success: false, error: "반태그 조회에 실패했습니다." };
     }
 
-    // 중복된 태그 이름 제거 (같은 이름의 태그가 여러 반에 있을 수 있음)
-    const uniqueTags = Array.from(new Map((tags || []).map((tag) => [tag.name, tag])).values());
+    // 중복 제거
+    const allTags = (tagLinks || [])
+      .map((link: TagLinkWithClassTag) => link.class_tags)
+      .filter(Boolean);
+
+    const uniqueTags = Array.from(new Map(allTags.map((tag) => [tag.id, tag])).values());
 
     return { success: true, data: uniqueTags };
   } catch (error) {
@@ -1097,7 +1264,7 @@ export const getGroupClassTags = async (
 };
 
 /**
- * 반태그 생성 (이름 중복 검사)
+ * 반태그 생성
  */
 export const createClassTag = async (
   tagData: CreateClassTagRequest,
@@ -1120,31 +1287,29 @@ export const createClassTag = async (
       return { success: false, error: "그룹 멤버만 반태그를 생성할 수 있습니다." };
     }
 
-    // 같은 그룹 내에서 태그 이름 중복 검사
-    const { data: existingTags } = await supabaseAdmin
+    // 태그 이름 중복 검사
+    const { data: existingTag } = await supabaseAdmin
       .from("class_tags")
-      .select(
-        `
-        id,
-        name,
-        classes!inner (group_id)
-      `
-      )
-      .eq("classes.group_id", tagData.groupId)
-      .eq("name", tagData.name.trim());
+      .select("id")
+      .eq("name", tagData.name.trim())
+      .single();
 
-    if (existingTags && existingTags.length > 0) {
+    if (existingTag) {
       return { success: false, error: "이미 존재하는 태그 이름입니다." };
     }
 
-    // 임시 반을 생성하여 태그를 만들어야 함 (태그는 반에 종속됨)
-    // 실제로는 태그만 관리하는 별도 테이블이 필요하지만,
-    // 현재 구조에서는 반에 연결된 형태로만 태그 생성 가능
+    // 새 태그 생성
+    const { data: newTag, error } = await supabaseAdmin
+      .from("class_tags")
+      .insert({ name: tagData.name.trim() })
+      .select()
+      .single();
 
-    return {
-      success: false,
-      error: "태그는 반 생성 시에만 만들 수 있습니다. 반을 먼저 생성해주세요.",
-    };
+    if (error) {
+      return { success: false, error: "태그 생성에 실패했습니다." };
+    }
+
+    return { success: true, data: newTag };
   } catch (error) {
     console.error("Create class tag error:", error);
     return { success: false, error: "반태그 생성 중 오류가 발생했습니다." };
@@ -1164,29 +1329,28 @@ export const updateClassTag = async (
       return { success: false, error: "태그 이름을 입력해주세요." };
     }
 
-    // 태그가 속한 반의 그룹 조회
-    const { data: tagInfo } = await supabaseAdmin
-      .from("class_tags")
+    // 태그를 사용하는 반이 있는지 확인 (그룹 멤버 권한 확인용)
+    const { data: tagLinks } = await supabaseAdmin
+      .from("class_tag_links")
       .select(
         `
-        id,
-        name,
-        class_id,
         classes!inner (group_id)
       `
       )
-      .eq("id", tagId)
-      .single();
+      .eq("tag_id", tagId)
+      .limit(1);
 
-    if (!tagInfo) {
+    if (!tagLinks || tagLinks.length === 0) {
       return { success: false, error: "태그를 찾을 수 없습니다." };
     }
+
+    const groupId = tagLinks[0].classes.group_id;
 
     // 그룹 멤버인지 확인
     const { data: memberCheck } = await supabaseAdmin
       .from("group_member")
       .select("id")
-      .eq("group_id", tagInfo.classes.group_id!)
+      .eq("group_id", groupId!)
       .eq("user_id", userId)
       .single();
 
@@ -1194,21 +1358,15 @@ export const updateClassTag = async (
       return { success: false, error: "그룹 멤버만 반태그를 수정할 수 있습니다." };
     }
 
-    // 같은 그룹 내에서 새 이름이 중복되는지 확인
-    const { data: existingTags } = await supabaseAdmin
+    // 새 이름이 중복되는지 확인
+    const { data: existingTag } = await supabaseAdmin
       .from("class_tags")
-      .select(
-        `
-        id,
-        name,
-        classes!inner (group_id)
-      `
-      )
-      .eq("classes.group_id", tagInfo.classes.group_id!)
+      .select("id")
       .eq("name", updateData.name.trim())
-      .neq("id", tagId);
+      .neq("id", tagId)
+      .single();
 
-    if (existingTags && existingTags.length > 0) {
+    if (existingTag) {
       return { success: false, error: "이미 존재하는 태그 이름입니다." };
     }
 
@@ -1238,7 +1396,7 @@ export const linkTagToClass = async (
   classId: string,
   linkData: LinkClassTagRequest,
   userId: string
-): Promise<ApiResponse<ClassTag>> => {
+): Promise<ApiResponse<ClassTagLink>> => {
   try {
     // 반 정보 조회
     const { data: classInfo } = await supabaseAdmin
@@ -1263,35 +1421,35 @@ export const linkTagToClass = async (
       return { success: false, error: "그룹 멤버만 반태그를 연결할 수 있습니다." };
     }
 
-    // 원본 태그 정보 조회
-    const { data: originalTag } = await supabaseAdmin
+    // 태그가 존재하는지 확인
+    const { data: tag } = await supabaseAdmin
       .from("class_tags")
-      .select("name")
+      .select("id, name")
       .eq("id", linkData.tagId)
       .single();
 
-    if (!originalTag) {
+    if (!tag) {
       return { success: false, error: "연결할 태그를 찾을 수 없습니다." };
     }
 
-    // 이미 같은 이름의 태그가 해당 반에 있는지 확인
-    const { data: existingTag } = await supabaseAdmin
-      .from("class_tags")
-      .select("id")
+    // 이미 연결되어 있는지 확인
+    const { data: existingLink } = await supabaseAdmin
+      .from("class_tag_links")
+      .select("class_id, tag_id")
       .eq("class_id", classId)
-      .eq("name", originalTag.name)
+      .eq("tag_id", linkData.tagId)
       .single();
 
-    if (existingTag) {
-      return { success: false, error: "해당 반에 이미 같은 이름의 태그가 있습니다." };
+    if (existingLink) {
+      return { success: false, error: "이미 연결된 태그입니다." };
     }
 
-    // 새로운 태그 생성 (기존 태그를 복사하여 새 반에 연결)
-    const { data: newTag, error } = await supabaseAdmin
-      .from("class_tags")
+    // 반과 태그 연결
+    const { data: newLink, error } = await supabaseAdmin
+      .from("class_tag_links")
       .insert({
         class_id: classId,
-        name: originalTag.name,
+        tag_id: linkData.tagId,
       })
       .select()
       .single();
@@ -1300,7 +1458,7 @@ export const linkTagToClass = async (
       return { success: false, error: "태그 연결에 실패했습니다." };
     }
 
-    return { success: true, data: newTag };
+    return { success: true, data: newLink };
   } catch (error) {
     console.error("Link tag to class error:", error);
     return { success: false, error: "반태그 연결 중 오류가 발생했습니다." };
@@ -1308,7 +1466,7 @@ export const linkTagToClass = async (
 };
 
 /**
- * 반태그별 반 검색 (기존 searchClasses 함수에 tagName 조건 추가)
+ * 반태그별 반 검색
  */
 export const searchClassesByTag = async (
   groupId: string,
@@ -1328,40 +1486,69 @@ export const searchClassesByTag = async (
       return { success: false, error: "그룹 멤버만 반을 검색할 수 있습니다." };
     }
 
-    // 해당 태그를 가진 반들 조회
-    const { data: taggedClasses } = await supabaseAdmin
+    // 태그 조회
+    const { data: tag } = await supabaseAdmin
       .from("class_tags")
+      .select("id")
+      .eq("name", tagName)
+      .single();
+
+    if (!tag) {
+      return { success: true, data: [] };
+    }
+
+    // 해당 태그를 가진 반들 조회
+    const { data: taggedClasses, error } = await supabaseAdmin
+      .from("class_tag_links")
       .select(
         `
-        class_id,
         classes!inner (
           *,
-          groups (name, description),
-          class_tags (*)
+          groups (name, description)
         )
       `
       )
-      .eq("name", tagName)
+      .eq("tag_id", tag.id)
       .eq("classes.group_id", groupId);
+
+    if (error) {
+      console.error("Search classes by tag error:", error);
+      return { success: false, error: "태그별 반 검색에 실패했습니다." };
+    }
 
     if (!taggedClasses || taggedClasses.length === 0) {
       return { success: true, data: [] };
     }
 
-    // 각 반의 구성원 수 조회
+    // 각 반의 구성원 수와 태그 조회
     const classesWithDetails: ClassWithDetails[] = await Promise.all(
       taggedClasses.map(async (taggedClass) => {
         const classData = taggedClass.classes;
-        const { count } = await supabaseAdmin
-          .from("class_members")
-          .select("*", { count: "exact", head: true })
-          .eq("class_id", classData.id);
+
+        const [memberCountResult, tagsResult] = await Promise.all([
+          supabaseAdmin
+            .from("class_members")
+            .select("*", { count: "exact", head: true })
+            .eq("class_id", classData.id),
+          supabaseAdmin
+            .from("class_tag_links")
+            .select(
+              `
+              class_tags (*)
+            `
+            )
+            .eq("class_id", classData.id),
+        ]);
+
+        const tags = (tagsResult.data || [])
+          .map((link: TagLinkWithClassTag) => link.class_tags)
+          .filter(Boolean);
 
         return {
           ...classData,
-          memberCount: count || 0,
+          memberCount: memberCountResult.count || 0,
           groups: classData.groups || null,
-          class_tags: classData.class_tags || [],
+          class_tags: tags || [],
         };
       })
     );
@@ -1378,28 +1565,28 @@ export const searchClassesByTag = async (
  */
 export const deleteClassTag = async (tagId: string, userId: string): Promise<ApiResponse<void>> => {
   try {
-    // 태그가 속한 반의 그룹 조회
-    const { data: tagInfo } = await supabaseAdmin
-      .from("class_tags")
+    // 태그를 사용하는 반이 있는지 확인
+    const { data: tagLinks } = await supabaseAdmin
+      .from("class_tag_links")
       .select(
         `
-        id,
-        class_id,
         classes!inner (group_id)
       `
       )
-      .eq("id", tagId)
-      .single();
+      .eq("tag_id", tagId)
+      .limit(1);
 
-    if (!tagInfo) {
+    if (!tagLinks || tagLinks.length === 0) {
       return { success: false, error: "태그를 찾을 수 없습니다." };
     }
+
+    const groupId = tagLinks[0].classes.group_id;
 
     // 그룹 멤버인지 확인
     const { data: memberCheck } = await supabaseAdmin
       .from("group_member")
       .select("id")
-      .eq("group_id", tagInfo.classes.group_id!)
+      .eq("group_id", groupId!)
       .eq("user_id", userId)
       .single();
 
@@ -1407,7 +1594,9 @@ export const deleteClassTag = async (tagId: string, userId: string): Promise<Api
       return { success: false, error: "그룹 멤버만 반태그를 삭제할 수 있습니다." };
     }
 
-    // 태그 삭제
+    // 연결 삭제 후 태그 삭제
+    await supabaseAdmin.from("class_tag_links").delete().eq("tag_id", tagId);
+
     const { error } = await supabaseAdmin.from("class_tags").delete().eq("id", tagId);
 
     if (error) {

@@ -976,10 +976,8 @@ export const createGroupRole = async (
   }
 };
 
-// src/lib/groups.ts의 updateGroupRole 함수 업데이트
-
 /**
- * 역할 수정 (이름 수정 지원 추가)
+ * 역할 수정 (자신은 수정 불가, 기본 역할은 권한 수정 불가)
  */
 export const updateGroupRole = async (
   roleId: string,
@@ -1003,7 +1001,8 @@ export const updateGroupRole = async (
       .from("group_member")
       .select(
         `
-        group_roles (can_manage_roles)
+        group_roles (can_manage_roles),
+        group_role_id
       `
       )
       .eq("group_id", role.group_id)
@@ -1012,10 +1011,16 @@ export const updateGroupRole = async (
 
     const memberRole = member as {
       group_roles: { can_manage_roles: boolean };
+      group_role_id: string;
     };
 
     if (!memberRole?.group_roles?.can_manage_roles) {
       return { success: false, error: "역할 관리 권한이 없습니다." };
+    }
+
+    // 자신의 역할은 수정할 수 없음
+    if (memberRole.group_role_id === roleId) {
+      return { success: false, error: "자신의 역할은 수정할 수 없습니다." };
     }
 
     // 이름 변경 시 중복 검사 (이름이 변경되는 경우에만)
@@ -1277,7 +1282,6 @@ export const getGroupRoles = async (
     return { success: false, error: "역할 조회 중 오류가 발생했습니다." };
   }
 };
-// src/lib/groups.ts - 파일 끝에 추가할 새로운 함수들
 
 /**
  * 그룹에서 보낸 초대 목록 조회
@@ -1461,8 +1465,6 @@ export const checkPendingInvitation = async (
     return { success: true, data: false };
   }
 };
-
-// src/lib/groups.ts에 추가할 함수
 
 /**
  * 그룹 멤버 제거 (owner만 가능)

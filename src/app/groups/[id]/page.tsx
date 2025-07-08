@@ -17,11 +17,13 @@ import {
   Popconfirm,
   Switch,
   Empty,
+  Spin,
   App,
   Badge,
 } from "antd";
 import {
   UserAddOutlined,
+  UserDeleteOutlined,
   SettingOutlined,
   CrownOutlined,
   DeleteOutlined,
@@ -34,6 +36,7 @@ import {
   PhoneOutlined,
   ClockCircleOutlined,
   CloseOutlined,
+  ExclamationCircleOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -52,6 +55,7 @@ import {
   leaveGroup,
   transferGroupOwnership,
   getGroupDetails,
+  removeGroupMember,
   GroupMemberWithDetails,
   InvitationWithDetails,
 } from "@/lib/groups";
@@ -71,6 +75,7 @@ interface CreateRoleFormValues {
 }
 
 interface UpdateRoleFormValues {
+  name?: string;
   can_invite: boolean;
   can_manage_roles: boolean;
   can_create_form: boolean;
@@ -187,6 +192,24 @@ export default function GroupDetailPage() {
     }
     loadGroupData();
   }, [user, groupId, loadGroupData, router]);
+
+  // 멤버 제거 (owner만 가능)
+  const handleRemoveMember = async (memberUserId: string, memberName: string) => {
+    if (!user || !isOwner) return;
+
+    try {
+      const result = await removeGroupMember(groupId, memberUserId, user.id);
+
+      if (result.success) {
+        messageApi.success(`${memberName}님이 그룹에서 제거되었습니다.`);
+        loadGroupData();
+      } else {
+        messageApi.error(result.error || "멤버 제거에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("멤버 제거 중 오류가 발생했습니다.");
+    }
+  };
 
   // 초대 취소
   const handleCancelInvitation = async (invitationId: string, inviteeInfo: string) => {
@@ -413,12 +436,14 @@ export default function GroupDetailPage() {
       key: "role",
       render: (role: GroupMemberWithDetails["group_roles"], record: GroupMemberWithDetails) => {
         const isOwnerRole = role?.name === "owner";
+        const isCurrentUser = record.users?.id === user?.id;
+
         return (
           <Space>
             <Tag color={isOwnerRole ? "gold" : "blue"}>
               {isOwnerRole && <CrownOutlined />} {role?.name}
             </Tag>
-            {userRole?.can_manage_roles && !isOwnerRole && (
+            {userRole?.can_manage_roles && !isOwnerRole && !isCurrentUser && (
               <Select
                 size="small"
                 value={role?.id}
@@ -443,6 +468,33 @@ export default function GroupDetailPage() {
       dataIndex: "joined_at",
       key: "joined_at",
       render: (date: string) => new Date(date).toLocaleDateString(),
+    },
+    {
+      title: "작업",
+      key: "actions",
+      render: (_: unknown, record: GroupMemberWithDetails) => {
+        const isOwnerRole = record.group_roles?.name === "owner";
+        const isCurrentUser = record.users?.id === user?.id;
+
+        if (isOwnerRole || isCurrentUser) {
+          return null;
+        }
+
+        return (
+          isOwner && (
+            <Popconfirm
+              title={`${record.users?.name}님을 그룹에서 제거하시겠습니까?`}
+              description="이 작업은 되돌릴 수 없습니다."
+              onConfirm={() => handleRemoveMember(record.users?.id || "", record.users?.name || "")}
+              icon={<ExclamationCircleOutlined style={{ color: "red" }} />}
+            >
+              <Button size="small" danger icon={<UserDeleteOutlined />}>
+                제거
+              </Button>
+            </Popconfirm>
+          )
+        );
+      },
     },
   ];
 
@@ -494,16 +546,39 @@ export default function GroupDetailPage() {
       key: "actions",
       render: (_: unknown, record: GroupRole) => {
         if (record.name === "owner" || record.name === "member") {
-          return <span className="text-gray-400">기본 역할</span>;
+          return (
+            <Space>
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => {
+                  setEditingRole(record);
+                }}
+                disabled={!userRole?.can_manage_roles}
+              >
+                이름 수정
+              </Button>
+              <span className="text-gray-400">기본 역할</span>
+            </Space>
+          );
         }
 
         if (!userRole?.can_manage_roles) {
           return null;
         }
 
+        const currentUserRole = members.find((m) => m.users?.id === user?.id)?.group_roles;
+        const isEditingOwnRole = currentUserRole?.id === record.id;
+
         return (
           <Space>
-            <Button size="small" icon={<EditOutlined />} onClick={() => setEditingRole(record)}>
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => setEditingRole(record)}
+              disabled={isEditingOwnRole}
+              title={isEditingOwnRole ? "자신의 역할은 수정할 수 없습니다" : ""}
+            >
               수정
             </Button>
             <Popconfirm
@@ -908,6 +983,7 @@ export default function GroupDetailPage() {
             <Form
               layout="vertical"
               initialValues={{
+                name: editingRole.name,
                 can_invite: editingRole.can_invite,
                 can_manage_roles: editingRole.can_manage_roles,
                 can_create_form: editingRole.can_create_form,
@@ -915,21 +991,34 @@ export default function GroupDetailPage() {
               }}
               onFinish={(values: UpdateRoleFormValues) => handleUpdateRole(editingRole.id, values)}
             >
-              <Form.Item name="can_invite" valuePropName="checked" label="멤버 초대 권한">
-                <Switch />
+              <Form.Item
+                name="name"
+                label="역할 이름"
+                rules={[{ required: true, message: "역할 이름을 입력해주세요!" }]}
+              >
+                <Input placeholder="역할 이름" />
               </Form.Item>
 
-              <Form.Item name="can_manage_roles" valuePropName="checked" label="역할 관리 권한">
-                <Switch />
-              </Form.Item>
+              {/* 기본 역할(owner, member)은 권한 수정 불가 */}
+              {editingRole.name !== "owner" && editingRole.name !== "member" && (
+                <>
+                  <Form.Item name="can_invite" valuePropName="checked" label="멤버 초대 권한">
+                    <Switch />
+                  </Form.Item>
 
-              <Form.Item name="can_create_form" valuePropName="checked" label="양식 생성 권한">
-                <Switch />
-              </Form.Item>
+                  <Form.Item name="can_manage_roles" valuePropName="checked" label="역할 관리 권한">
+                    <Switch />
+                  </Form.Item>
 
-              <Form.Item name="can_delete_form" valuePropName="checked" label="양식 삭제 권한">
-                <Switch />
-              </Form.Item>
+                  <Form.Item name="can_create_form" valuePropName="checked" label="양식 생성 권한">
+                    <Switch />
+                  </Form.Item>
+
+                  <Form.Item name="can_delete_form" valuePropName="checked" label="양식 삭제 권한">
+                    <Switch />
+                  </Form.Item>
+                </>
+              )}
 
               <Form.Item className="mb-0 mt-6">
                 <Space>
