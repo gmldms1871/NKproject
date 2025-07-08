@@ -190,7 +190,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
               className="text-xl font-bold text-gray-900 cursor-pointer"
               onClick={() => router.push("/")}
             >
-              Report Management System
+              NK Project
             </div>
 
             {menuItems && (

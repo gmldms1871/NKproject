@@ -30,12 +30,12 @@ export default function Home() {
               <div className="space-y-6">
                 <div className="space-y-4">
                   <h1 className="text-3xl font-bold tracking-tight sm:text-5xl xl:text-6xl">
-                    {user ? `환영합니다, ${user.name}님!` : "Streamline Your Reporting Process"}
+                    {user ? `환영합니다, ${user.name}님!` : "로그인하여주세요."}
                   </h1>
                   <p className="text-xl text-gray-600 max-w-2xl">
                     {user
                       ? "보고서 관리 시스템에서 그룹을 관리하고 보고서를 작성하세요."
-                      : "Manage groups, create reports, and track tasks efficiently with our comprehensive reporting system."}
+                      : "보고서 관리 시스템에서 그룹을 관리하고 보고서를 작성하세요."}
                   </p>
                 </div>
 
