@@ -29,6 +29,8 @@ import {
   FilterOutlined,
   EditOutlined,
   DeleteOutlined,
+  LogoutOutlined,
+  PlusOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -41,6 +43,13 @@ import {
   updateClass,
   deleteClass,
   getClassTags,
+  leaveClass,
+  getAllAvailableTags,
+  searchClassTags,
+  updateClassTag,
+  deleteClassTag,
+  linkTagToClass,
+  createClassTag,
   ClassWithDetails,
   ClassMemberWithDetails,
   ClassMemberSearchConditions,
@@ -84,10 +93,44 @@ export default function ClassDetailPage() {
   const [addMemberModalVisible, setAddMemberModalVisible] = useState(false);
   const [editClassModalVisible, setEditClassModalVisible] = useState(false);
   const [searchVisible, setSearchVisible] = useState(false);
+  const [tagManagementModalVisible, setTagManagementModalVisible] = useState(false);
+  const [availableTags, setAvailableTags] = useState<ClassTag[]>([]);
+  const [searchTags, setSearchTags] = useState<ClassTag[]>([]);
+  const [tagSearchTerm, setTagSearchTerm] = useState("");
+  const [editingTag, setEditingTag] = useState<ClassTag | null>(null);
+  const [newTagName, setNewTagName] = useState("");
 
   const [addMemberForm] = Form.useForm();
   const [editClassForm] = Form.useForm();
   const [searchForm] = Form.useForm();
+
+  // 반 멤버 여부 확인 (user가 있을 때만)
+  const isMember = user ? classMembers.some((member) => member.user_id === user.id) : false;
+
+  // handleLeaveClass를 useCallback으로 선언
+  const handleLeaveClass = useCallback(() => {
+    Modal.confirm({
+      title: "반에서 나가시겠습니까?",
+      content: "반에서 나가면 다시 가입하기 전까지는 반에 접근할 수 없습니다.",
+      okText: "나가기",
+      okType: "danger",
+      cancelText: "취소",
+      onOk: async () => {
+        if (!user) return;
+        try {
+          const result = await leaveClass(classId, user.id);
+          if (result.success) {
+            messageApi.success("반에서 나갔습니다.");
+            router.push("/groups");
+          } else {
+            messageApi.error(result.error || "반 나가기에 실패했습니다.");
+          }
+        } catch (error) {
+          messageApi.error("반 나가기 중 오류가 발생했습니다.");
+        }
+      },
+    });
+  }, [user, classId, messageApi, router]);
 
   // 페이지 헤더 설정
   useEffect(() => {
@@ -112,13 +155,18 @@ export default function ClassDetailPage() {
             <Button icon={<SettingOutlined />} onClick={() => setEditClassModalVisible(true)}>
               반 설정
             </Button>
+            {isMember && (
+              <Button danger icon={<LogoutOutlined />} onClick={handleLeaveClass}>
+                나가기
+              </Button>
+            )}
           </Space>
         ),
       });
     }
 
     return () => setPageHeader(null);
-  }, [classDetails, setPageHeader, searchVisible]);
+  }, [classDetails, setPageHeader, searchVisible, user, isMember, handleLeaveClass]);
 
   // 반 데이터 로드
   const loadClassData = useCallback(async () => {
@@ -260,14 +308,16 @@ export default function ClassDetailPage() {
     if (!user) return;
 
     try {
-      // tags 값을 안전하게 문자열 배열로 변환
+      // 태그 처리 - 공백 제거 및 필터링
       const tags = Array.isArray(values.tags)
-        ? values.tags.map((tag) => {
-            if (typeof tag === "string") return tag;
-            if (typeof tag === "object" && tag.label) return tag.label;
-            if (typeof tag === "object" && tag.value) return tag.value;
-            return String(tag);
-          })
+        ? values.tags
+            .map((tag) => {
+              if (typeof tag === "string") return tag.trim();
+              if (typeof tag === "object" && tag.label) return tag.label.trim();
+              if (typeof tag === "object" && tag.value) return tag.value.trim();
+              return String(tag).trim();
+            })
+            .filter((tag) => tag && tag.length > 0) // 빈 문자열 제거
         : [];
 
       const result = await updateClass(classId, user.id, {
@@ -306,6 +356,123 @@ export default function ClassDetailPage() {
     }
   };
 
+  // 태그 관리 관련 함수들
+  const loadAvailableTags = useCallback(async () => {
+    if (!user || !classDetails?.group_id) return;
+
+    try {
+      const result = await getAllAvailableTags(classDetails.group_id, user.id);
+      if (result.success) {
+        setAvailableTags(result.data || []);
+      }
+    } catch (error) {
+      console.error("Load available tags error:", error);
+    }
+  }, [user, classDetails?.group_id]);
+
+  const handleSearchTags = async (searchTerm: string) => {
+    if (!user || !classDetails?.group_id) return;
+
+    setTagSearchTerm(searchTerm);
+    if (!searchTerm.trim()) {
+      setSearchTags([]);
+      return;
+    }
+
+    try {
+      const result = await searchClassTags(classDetails.group_id, searchTerm, user.id);
+      if (result.success) {
+        setSearchTags(result.data || []);
+      }
+    } catch (error) {
+      console.error("Search tags error:", error);
+    }
+  };
+
+  const handleAddTagToClass = async (tagId: string) => {
+    if (!user) return;
+
+    try {
+      const result = await linkTagToClass(classId, { tagId }, user.id);
+      if (result.success) {
+        messageApi.success("태그가 반에 추가되었습니다.");
+        loadClassData(); // 반 데이터 새로고침
+      } else {
+        messageApi.error(result.error || "태그 추가에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("태그 추가 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleRemoveTagFromClass = async (tagId: string) => {
+    if (!user) return;
+
+    try {
+      const result = await deleteClassTag(tagId, user.id);
+      if (result.success) {
+        messageApi.success("태그가 반에서 제거되었습니다.");
+        loadClassData(); // 반 데이터 새로고침
+      } else {
+        messageApi.error(result.error || "태그 제거에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("태그 제거 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleEditTag = async (tagId: string, newName: string) => {
+    if (!user) return;
+
+    // 공백 제거
+    const trimmedName = newName.trim();
+    if (!trimmedName) {
+      messageApi.error("태그 이름을 입력해주세요.");
+      return;
+    }
+
+    try {
+      const result = await updateClassTag(tagId, { name: trimmedName }, user.id);
+      if (result.success) {
+        messageApi.success("태그 이름이 수정되었습니다.");
+        setEditingTag(null);
+        loadClassData(); // 반 데이터 새로고침
+        loadAvailableTags(); // 사용 가능한 태그 목록 새로고침
+      } else {
+        messageApi.error(result.error || "태그 수정에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("태그 수정 중 오류가 발생했습니다.");
+    }
+  };
+
+  const handleCreateNewTag = async () => {
+    if (!user || !classDetails?.group_id) return;
+
+    // 공백 제거
+    const trimmedName = newTagName.trim();
+    if (!trimmedName) {
+      messageApi.error("태그 이름을 입력해주세요.");
+      return;
+    }
+
+    try {
+      const result = await createClassTag(
+        { name: trimmedName, groupId: classDetails.group_id },
+        user.id
+      );
+      if (result.success) {
+        messageApi.success("새 태그가 생성되었습니다.");
+        setNewTagName("");
+        loadAvailableTags(); // 사용 가능한 태그 목록 새로고침
+      } else {
+        messageApi.error(result.error || "태그 생성에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("태그 생성 중 오류가 발생했습니다.");
+    }
+  };
+
   useEffect(() => {
     if (!user) {
       router.push("/auth");
@@ -313,6 +480,13 @@ export default function ClassDetailPage() {
     }
     loadClassData();
   }, [user, classId, loadClassData, router]);
+
+  // 태그 관리 모달이 열릴 때 사용 가능한 태그들 로드
+  useEffect(() => {
+    if (tagManagementModalVisible && classDetails?.group_id) {
+      loadAvailableTags();
+    }
+  }, [tagManagementModalVisible, classDetails?.group_id, loadAvailableTags]);
 
   // 테이블 컬럼 정의
   const membersColumns = [
@@ -487,6 +661,88 @@ export default function ClassDetailPage() {
         </Card>
       ),
     },
+    {
+      key: "tags",
+      label: "태그 관리",
+      children: (
+        <Card>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-medium">현재 태그</h3>
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                onClick={() => setTagManagementModalVisible(true)}
+              >
+                태그 추가
+              </Button>
+            </div>
+
+            {classTags.length > 0 ? (
+              <div className="space-y-2">
+                {classTags.map((tag) => (
+                  <div
+                    key={tag.id}
+                    className="flex items-center justify-between p-3 border rounded-lg"
+                  >
+                    <Tag color="blue" className="text-base px-3 py-1">
+                      {editingTag?.id === tag.id ? (
+                        <Input
+                          defaultValue={tag.name}
+                          onPressEnter={(e) => {
+                            const value = e.currentTarget.value.trim();
+                            if (value) {
+                              handleEditTag(tag.id, value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = e.target.value.trim();
+                            if (value) {
+                              handleEditTag(tag.id, value);
+                            } else {
+                              setEditingTag(null);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Escape") {
+                              setEditingTag(null);
+                            }
+                          }}
+                          autoFocus
+                        />
+                      ) : (
+                        <span onClick={() => setEditingTag(tag)} className="cursor-pointer">
+                          {tag.name}
+                        </span>
+                      )}
+                    </Tag>
+                    <Space>
+                      <Button
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={() => setEditingTag(tag)}
+                      >
+                        수정
+                      </Button>
+                      <Popconfirm
+                        title="이 태그를 반에서 제거하시겠습니까?"
+                        onConfirm={() => handleRemoveTagFromClass(tag.id)}
+                      >
+                        <Button size="small" danger icon={<DeleteOutlined />}>
+                          제거
+                        </Button>
+                      </Popconfirm>
+                    </Space>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty description="연결된 태그가 없습니다" />
+            )}
+          </div>
+        </Card>
+      ),
+    },
   ];
 
   if (!user) {
@@ -595,6 +851,99 @@ export default function ClassDetailPage() {
           width={600}
           destroyOnClose
         >
+          {/* 태그 관리 모달 */}
+          <Modal
+            title="태그 추가"
+            open={tagManagementModalVisible}
+            onCancel={() => {
+              setTagManagementModalVisible(false);
+              setTagSearchTerm("");
+              setSearchTags([]);
+              setNewTagName("");
+            }}
+            footer={null}
+            width={600}
+            destroyOnClose
+          >
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium mb-2">새 태그 생성</h4>
+                <div className="flex space-x-2">
+                  <Input
+                    placeholder="새 태그 이름 입력..."
+                    value={newTagName}
+                    onChange={(e) => setNewTagName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newTagName.trim()) {
+                        handleCreateNewTag();
+                      }
+                    }}
+                  />
+                  <Button type="primary" onClick={handleCreateNewTag} disabled={!newTagName.trim()}>
+                    생성
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="font-medium mb-2">태그 검색</h4>
+                <Input
+                  placeholder="태그 이름으로 검색..."
+                  value={tagSearchTerm}
+                  onChange={(e) => handleSearchTags(e.target.value)}
+                  prefix={<SearchOutlined />}
+                />
+              </div>
+
+              <div>
+                <h4 className="font-medium mb-2">검색 결과</h4>
+                {searchTags.length > 0 ? (
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {searchTags.map((tag) => (
+                      <div
+                        key={tag.id}
+                        className="flex items-center justify-between p-2 border rounded"
+                      >
+                        <Tag color="blue">{tag.name}</Tag>
+                        <Button
+                          size="small"
+                          type="primary"
+                          onClick={() => handleAddTagToClass(tag.id)}
+                        >
+                          추가
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : tagSearchTerm ? (
+                  <Empty description="검색 결과가 없습니다" />
+                ) : (
+                  <Empty description="태그를 검색해보세요" />
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-medium mb-2">사용 가능한 모든 태그</h4>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {availableTags.map((tag) => (
+                    <div
+                      key={tag.id}
+                      className="flex items-center justify-between p-2 border rounded"
+                    >
+                      <Tag color="blue">{tag.name}</Tag>
+                      <Button
+                        size="small"
+                        type="primary"
+                        onClick={() => handleAddTagToClass(tag.id)}
+                      >
+                        추가
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </Modal>
           <Form form={editClassForm} layout="vertical" onFinish={handleUpdateClass}>
             <Form.Item
               name="name"
@@ -611,12 +960,24 @@ export default function ClassDetailPage() {
             <Form.Item name="tags" label="태그">
               <Select
                 mode="tags"
-                placeholder="태그를 입력하거나 선택하세요"
+                placeholder="태그를 입력하거나 선택하세요 (Enter로 새 태그 추가)"
                 style={{ width: "100%" }}
+                tokenSeparators={[","]}
+                filterOption={(input, option) => {
+                  if (option?.label && typeof option.label === "string") {
+                    return option.label.toLowerCase().includes(input.toLowerCase());
+                  }
+                  return false;
+                }}
+                onInputKeyDown={(e) => {
+                  if (e.key === "Enter" && e.currentTarget.value.trim() === "") {
+                    e.preventDefault();
+                  }
+                }}
               >
-                {classTags.map((tag) => (
-                  <Select.Option key={tag.id} value={tag.name}>
-                    {tag.name}
+                {availableTags.map((tag) => (
+                  <Select.Option key={tag.id} value={tag.name} label={tag.name}>
+                    <Tag color="blue">{tag.name}</Tag>
                   </Select.Option>
                 ))}
               </Select>

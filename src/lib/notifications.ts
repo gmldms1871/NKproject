@@ -371,3 +371,263 @@ export const getNotificationsByType = async (
     return { success: false, error: "타입별 알림 조회 중 오류가 발생했습니다." };
   }
 };
+
+/**
+ * 멤버 내보내기 알림 생성
+ */
+export const createMemberRemovedNotification = async (
+  groupId: string,
+  groupName: string,
+  removedUserId: string,
+  removedByUserId: string
+): Promise<ApiResponse<Notification>> => {
+  try {
+    const notificationData: NotificationInsert = {
+      target_id: removedUserId,
+      creator_id: removedByUserId,
+      group_id: groupId,
+      related_id: groupId,
+      type: "member_removed",
+      title: "그룹에서 탈퇴되었습니다",
+      content: `"${groupName}" 그룹에서 탈퇴되었습니다.`,
+      action_url: `/groups/${groupId}`,
+      is_read: false,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30일 후 만료
+    };
+
+    return await createNotification(notificationData);
+  } catch (error) {
+    console.error("Create member removed notification error:", error);
+    return { success: false, error: "멤버 탈퇴 알림 생성에 실패했습니다." };
+  }
+};
+
+/**
+ * 반 추가 알림 생성
+ */
+export const createClassAddedNotification = async (
+  classId: string,
+  className: string,
+  groupId: string,
+  groupName: string,
+  userId: string,
+  addedByUserId: string
+): Promise<ApiResponse<Notification>> => {
+  try {
+    const notificationData: NotificationInsert = {
+      target_id: userId,
+      creator_id: addedByUserId,
+      group_id: groupId,
+      related_id: classId,
+      type: "class_added",
+      title: "반에 추가되었습니다",
+      content: `"${groupName}" 그룹의 "${className}" 반에 추가되었습니다.`,
+      action_url: `/classes/${classId}`,
+      is_read: false,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    return await createNotification(notificationData);
+  } catch (error) {
+    console.error("Create class added notification error:", error);
+    return { success: false, error: "반 추가 알림 생성에 실패했습니다." };
+  }
+};
+
+/**
+ * 반 나가기 알림 생성
+ */
+export const createClassRemovedNotification = async (
+  classId: string,
+  className: string,
+  groupId: string,
+  groupName: string,
+  userId: string,
+  removedByUserId: string
+): Promise<ApiResponse<Notification>> => {
+  try {
+    const notificationData: NotificationInsert = {
+      target_id: userId,
+      creator_id: removedByUserId,
+      group_id: groupId,
+      related_id: classId,
+      type: "class_removed",
+      title: "반에서 나가졌습니다",
+      content: `"${groupName}" 그룹의 "${className}" 반에서 나가졌습니다.`,
+      action_url: `/groups/${groupId}`,
+      is_read: false,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    return await createNotification(notificationData);
+  } catch (error) {
+    console.error("Create class removed notification error:", error);
+    return { success: false, error: "반 나가기 알림 생성에 실패했습니다." };
+  }
+};
+
+/**
+ * 역할 변경 알림 생성
+ */
+export const createRoleChangedNotification = async (
+  groupId: string,
+  groupName: string,
+  userId: string,
+  oldRoleName: string,
+  newRoleName: string,
+  changedByUserId: string
+): Promise<ApiResponse<Notification>> => {
+  try {
+    const notificationData: NotificationInsert = {
+      target_id: userId,
+      creator_id: changedByUserId,
+      group_id: groupId,
+      related_id: groupId,
+      type: "role_changed",
+      title: "역할이 변경되었습니다",
+      content: `"${groupName}" 그룹에서 "${oldRoleName}"에서 "${newRoleName}"으로 역할이 변경되었습니다.`,
+      action_url: `/groups/${groupId}`,
+      is_read: false,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    return await createNotification(notificationData);
+  } catch (error) {
+    console.error("Create role changed notification error:", error);
+    return { success: false, error: "역할 변경 알림 생성에 실패했습니다." };
+  }
+};
+
+/**
+ * 초대 만료 알림 생성
+ */
+export const createInvitationExpiredNotification = async (
+  invitationId: string,
+  groupId: string,
+  groupName: string,
+  userId: string
+): Promise<ApiResponse<Notification>> => {
+  try {
+    const notificationData: NotificationInsert = {
+      target_id: userId,
+      creator_id: null,
+      group_id: groupId,
+      related_id: invitationId,
+      type: "invitation_expired",
+      title: "초대가 만료되었습니다",
+      content: `"${groupName}" 그룹 초대가 만료되었습니다.`,
+      action_url: `/invitations`,
+      is_read: false,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 7일 후 만료
+    };
+
+    return await createNotification(notificationData);
+  } catch (error) {
+    console.error("Create invitation expired notification error:", error);
+    return { success: false, error: "초대 만료 알림 생성에 실패했습니다." };
+  }
+};
+
+/**
+ * 초대 수락 알림 생성 (초대한 사람에게)
+ */
+export const createInvitationAcceptedNotification = async (
+  invitationId: string,
+  groupId: string,
+  groupName: string,
+  inviterId: string,
+  inviteeName: string
+): Promise<ApiResponse<Notification>> => {
+  try {
+    const notificationData: NotificationInsert = {
+      target_id: inviterId,
+      creator_id: null,
+      group_id: groupId,
+      related_id: invitationId,
+      type: "invitation_accepted",
+      title: "초대가 수락되었습니다",
+      content: `"${groupName}" 그룹 초대가 "${inviteeName}"님에 의해 수락되었습니다.`,
+      action_url: `/groups/${groupId}`,
+      is_read: false,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    return await createNotification(notificationData);
+  } catch (error) {
+    console.error("Create invitation accepted notification error:", error);
+    return { success: false, error: "초대 수락 알림 생성에 실패했습니다." };
+  }
+};
+
+/**
+ * 초대 거절 알림 생성 (초대한 사람에게)
+ */
+export const createInvitationRejectedNotification = async (
+  invitationId: string,
+  groupId: string,
+  groupName: string,
+  inviterId: string,
+  inviteeName: string
+): Promise<ApiResponse<Notification>> => {
+  try {
+    const notificationData: NotificationInsert = {
+      target_id: inviterId,
+      creator_id: null,
+      group_id: groupId,
+      related_id: invitationId,
+      type: "invitation_rejected",
+      title: "초대가 거절되었습니다",
+      content: `"${groupName}" 그룹 초대가 "${inviteeName}"님에 의해 거절되었습니다.`,
+      action_url: `/groups/${groupId}`,
+      is_read: false,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+
+    return await createNotification(notificationData);
+  } catch (error) {
+    console.error("Create invitation rejected notification error:", error);
+    return { success: false, error: "초대 거절 알림 생성에 실패했습니다." };
+  }
+};
+
+/**
+ * 만료된 초대들 처리
+ */
+export const processExpiredInvitations = async (): Promise<ApiResponse<void>> => {
+  try {
+    const { data: expiredInvitations, error } = await supabaseAdmin
+      .from("invitations")
+      .select(
+        `
+        id,
+        group_id,
+        invitee_id,
+        groups (name)
+      `
+      )
+      .lt("expires_at", new Date().toISOString());
+
+    if (error) {
+      console.error("Get expired invitations error:", error);
+      return { success: false, error: "만료된 초대 조회에 실패했습니다." };
+    }
+
+    if (expiredInvitations && expiredInvitations.length > 0) {
+      for (const invitation of expiredInvitations) {
+        if (invitation.invitee_id && invitation.group_id) {
+          await createInvitationExpiredNotification(
+            invitation.id,
+            invitation.group_id,
+            invitation.groups?.name || "알 수 없는 그룹",
+            invitation.invitee_id
+          );
+        }
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Process expired invitations error:", error);
+    return { success: false, error: "만료된 초대 처리 중 오류가 발생했습니다." };
+  }
+};

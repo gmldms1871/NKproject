@@ -1,5 +1,11 @@
 import { supabaseAdmin } from "./supabase";
 import { Database } from "./types/types";
+import {
+  createMemberRemovedNotification,
+  createRoleChangedNotification,
+  createInvitationAcceptedNotification,
+  createInvitationRejectedNotification,
+} from "./notifications";
 
 type Group = Database["public"]["Tables"]["groups"]["Row"];
 type GroupRole = Database["public"]["Tables"]["group_roles"]["Row"];
@@ -792,6 +798,37 @@ export const acceptGroupInvitation = async (
       return { success: false, error: "그룹 가입에 실패했습니다." };
     }
 
+    // 초대한 사람에게 수락 알림 보내기
+    if (invitation.inviter_id) {
+      const { data: userInfo } = await supabaseAdmin
+        .from("users")
+        .select("nickname")
+        .eq("id", userId)
+        .single();
+
+      const { data: groupInfo } = await supabaseAdmin
+        .from("groups")
+        .select("name")
+        .eq("id", invitation.group_id)
+        .single();
+
+      if (
+        userInfo &&
+        groupInfo &&
+        invitation.group_id &&
+        invitation.inviter_id &&
+        userInfo.nickname
+      ) {
+        await createInvitationAcceptedNotification(
+          invitationId,
+          invitation.group_id,
+          groupInfo.name || "알 수 없는 그룹",
+          invitation.inviter_id,
+          userInfo.nickname
+        );
+      }
+    }
+
     // 초대 삭제
     await supabaseAdmin.from("invitations").delete().eq("id", invitationId);
 
@@ -817,6 +854,48 @@ export const rejectGroupInvitation = async (
   userId: string
 ): Promise<ApiResponse<void>> => {
   try {
+    // 초대 정보 조회
+    const { data: invitation } = await supabaseAdmin
+      .from("invitations")
+      .select("*")
+      .eq("id", invitationId)
+      .single();
+
+    if (!invitation) {
+      return { success: false, error: "초대를 찾을 수 없습니다." };
+    }
+
+    // 초대한 사람에게 거절 알림 보내기
+    if (invitation.inviter_id) {
+      const { data: userInfo } = await supabaseAdmin
+        .from("users")
+        .select("nickname")
+        .eq("id", userId)
+        .single();
+
+      const { data: groupInfo } = await supabaseAdmin
+        .from("groups")
+        .select("name")
+        .eq("id", invitation.group_id!)
+        .single();
+
+      if (
+        userInfo &&
+        groupInfo &&
+        invitation.group_id &&
+        invitation.inviter_id &&
+        userInfo.nickname
+      ) {
+        await createInvitationRejectedNotification(
+          invitationId,
+          invitation.group_id,
+          groupInfo.name || "알 수 없는 그룹",
+          invitation.inviter_id,
+          userInfo.nickname
+        );
+      }
+    }
+
     // 초대 삭제
     const { error } = await supabaseAdmin.from("invitations").delete().eq("id", invitationId);
 
@@ -1255,18 +1334,15 @@ export const updateMemberRole = async (
     }
 
     // 역할 변경 알림 생성
-    if (groupInfo && targetMember.user_id) {
-      await createNotification({
-        target_id: targetMember.user_id,
-        creator_id: userId,
-        group_id: groupId,
-        related_id: groupId,
-        type: "역할 변경",
-        title: `${groupInfo.name} 그룹에서 역할이 변경되었습니다`,
-        content: `${oldRoleName}에서 ${newRole.name}으로 역할이 변경되었습니다.`,
-        action_url: `/groups/${groupId}`,
-        is_read: false,
-      });
+    if (groupInfo && targetMember.user_id && newRole.name) {
+      await createRoleChangedNotification(
+        groupId,
+        groupInfo.name || "알 수 없는 그룹",
+        targetMember.user_id,
+        oldRoleName,
+        newRole.name,
+        userId
+      );
     }
 
     return { success: true };
@@ -1624,17 +1700,12 @@ export const removeGroupMember = async (
     }
 
     // 3. 제거 알림 생성
-    await createNotification({
-      target_id: memberUserId,
-      creator_id: ownerId,
-      group_id: groupId,
-      related_id: groupId,
-      type: "그룹 탈퇴",
-      title: `${group.name} 그룹에서 탈퇴되었습니다`,
-      content: "그룹 관리자에 의해 그룹에서 제거되었습니다.",
-      action_url: "/groups",
-      is_read: false,
-    });
+    await createMemberRemovedNotification(
+      groupId,
+      group.name || "알 수 없는 그룹",
+      memberUserId,
+      ownerId
+    );
 
     return { success: true };
   } catch (error) {

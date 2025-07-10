@@ -37,6 +37,7 @@ import {
   ClockCircleOutlined,
   CloseOutlined,
   ExclamationCircleOutlined,
+  LogoutOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -120,6 +121,22 @@ export default function GroupDetailPage() {
   const userRole = members.find((m) => m.users?.id === user?.id)?.group_roles;
   const isOwner = group?.owner_id === user?.id;
 
+  // handleLeaveGroup를 useCallback으로 선언
+  const handleLeaveGroup = useCallback(async () => {
+    if (!user || !group) return;
+    try {
+      const result = await leaveGroup(groupId, user.id);
+      if (result.success) {
+        messageApi.success("그룹에서 나갔습니다.");
+        router.push("/groups");
+      } else {
+        messageApi.error(result.error || "그룹 나가기에 실패했습니다.");
+      }
+    } catch (error) {
+      messageApi.error("그룹 나가기 중 오류가 발생했습니다.");
+    }
+  }, [user, group, groupId, messageApi, router]);
+
   // 페이지 헤더 설정
   useEffect(() => {
     if (group) {
@@ -128,15 +145,22 @@ export default function GroupDetailPage() {
         subtitle: group.description || "그룹 설명",
         backUrl: "/groups",
         actions: (
-          <Button icon={<SettingOutlined />} onClick={() => setSettingsModalVisible(true)}>
-            그룹 설정
-          </Button>
+          <Space>
+            <Button icon={<SettingOutlined />} onClick={() => setSettingsModalVisible(true)}>
+              그룹 설정
+            </Button>
+            {!isOwner && (
+              <Button danger icon={<LogoutOutlined />} onClick={handleLeaveGroup}>
+                나가기
+              </Button>
+            )}
+          </Space>
         ),
       });
     }
 
     return () => setPageHeader(null);
-  }, [group, setPageHeader]);
+  }, [group, setPageHeader, handleLeaveGroup, isOwner]);
 
   const loadGroupData = useCallback(async () => {
     if (!user || !groupId) return;
@@ -345,24 +369,6 @@ export default function GroupDetailPage() {
       }
     } catch (error) {
       messageApi.error("그룹 삭제 중 오류가 발생했습니다.");
-    }
-  };
-
-  // 그룹 나가기
-  const handleLeaveGroup = async () => {
-    if (!user || !group) return;
-
-    try {
-      const result = await leaveGroup(groupId, user.id);
-
-      if (result.success) {
-        messageApi.success("그룹에서 나갔습니다.");
-        router.push("/groups");
-      } else {
-        messageApi.error(result.error || "그룹 나가기에 실패했습니다.");
-      }
-    } catch (error) {
-      messageApi.error("그룹 나가기 중 오류가 발생했습니다.");
     }
   };
 

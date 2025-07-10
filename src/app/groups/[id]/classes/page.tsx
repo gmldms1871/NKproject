@@ -39,6 +39,7 @@ import {
   searchClassesByTag,
   createClass,
   getGroupClassTags,
+  getAllAvailableTags,
   ClassWithDetails,
   ClassSearchConditions,
   ClassFilterConditions,
@@ -76,6 +77,7 @@ export default function ClassesListPage() {
 
   const [classes, setClasses] = useState<ClassWithDetails[]>([]);
   const [tags, setTags] = useState<ClassTag[]>([]);
+  const [allAvailableTags, setAllAvailableTags] = useState<ClassTag[]>([]);
   const [loading, setLoading] = useState(true);
   const [createModalVisible, setCreateModalVisible] = useState(false);
   const [searchFilterVisible, setSearchFilterVisible] = useState(false);
@@ -123,9 +125,10 @@ export default function ClassesListPage() {
 
     setLoading(true);
     try {
-      const [classesResult, tagsResult] = await Promise.all([
+      const [classesResult, tagsResult, allTagsResult] = await Promise.all([
         getAllClasses(groupId, user.id),
         getGroupClassTags(groupId, user.id),
+        getAllAvailableTags(groupId, user.id),
       ]);
 
       if (classesResult.success) {
@@ -138,6 +141,12 @@ export default function ClassesListPage() {
         setTags(tagsResult.data || []);
       } else {
         messageApi.error(tagsResult.error || "반 태그를 불러오는데 실패했습니다.");
+      }
+
+      if (allTagsResult.success) {
+        setAllAvailableTags(allTagsResult.data || []);
+      } else {
+        messageApi.error(allTagsResult.error || "전체 태그를 불러오는데 실패했습니다.");
       }
     } catch (error) {
       messageApi.error("데이터를 불러오는 중 오류가 발생했습니다.");
@@ -160,24 +169,23 @@ export default function ClassesListPage() {
 
     setCreateLoading(true);
     try {
-      // 새 태그와 기존 태그 결합
-      const newTags = Array.isArray(values.tags)
-        ? values.tags.map((tag) => {
-            if (typeof tag === "string") return tag;
-            if (typeof tag === "object" && tag.label) return tag.label;
-            if (typeof tag === "object" && tag.value) return tag.value;
-            return String(tag);
-          })
+      // 태그 처리 - 공백 제거 및 필터링
+      const tags = Array.isArray(values.tags)
+        ? values.tags
+            .map((tag) => {
+              if (typeof tag === "string") return tag.trim();
+              if (typeof tag === "object" && tag.label) return tag.label.trim();
+              if (typeof tag === "object" && tag.value) return tag.value.trim();
+              return String(tag).trim();
+            })
+            .filter((tag) => tag && tag.length > 0) // 빈 문자열 제거
         : [];
-
-      const existingTags = values.existingTags || [];
-      const allTags = [...newTags, ...existingTags].filter(Boolean);
 
       const result = await createClass(user.id, {
         name: values.name,
         description: values.description,
         groupId,
-        tags: allTags,
+        tags: tags,
       });
 
       if (result.success) {
@@ -551,32 +559,35 @@ export default function ClassesListPage() {
 
             <Divider>태그 설정</Divider>
 
-            <Form.Item name="existingTags" label="기존 태그 선택">
+            <Form.Item name="tags" label="태그">
               <Select
-                mode="multiple"
-                placeholder="기존 태그에서 선택하세요"
+                mode="tags"
+                placeholder="태그를 입력하거나 선택하세요 (Enter로 새 태그 추가)"
                 style={{ width: "100%" }}
-                allowClear
+                tokenSeparators={[","]}
+                filterOption={(input, option) => {
+                  if (option?.label && typeof option.label === "string") {
+                    return option.label.toLowerCase().includes(input.toLowerCase());
+                  }
+                  return false;
+                }}
+                onInputKeyDown={(e) => {
+                  if (e.key === "Enter" && e.currentTarget.value.trim() === "") {
+                    e.preventDefault();
+                  }
+                }}
               >
-                {tags.map((tag) => (
-                  <Select.Option key={tag.id} value={tag.name}>
+                {allAvailableTags.map((tag) => (
+                  <Select.Option key={tag.id} value={tag.name} label={tag.name}>
                     <Tag color="blue">{tag.name}</Tag>
                   </Select.Option>
                 ))}
               </Select>
             </Form.Item>
 
-            <Form.Item name="tags" label="새 태그 생성 (선택사항)">
-              <Select
-                mode="tags"
-                placeholder="새 태그를 입력하세요 (Enter로 추가)"
-                style={{ width: "100%" }}
-                tokenSeparators={[","]}
-              />
-            </Form.Item>
-
             <div className="text-xs text-gray-500 mb-4">
-              * 기존 태그와 새 태그를 함께 사용할 수 있습니다.
+              * 기존 태그를 선택하거나 새 태그를 입력할 수 있습니다.
+              <br />* 공백만으로는 태그를 생성할 수 없습니다.
               <br />* 동일한 이름의 태그가 있으면 기존 태그를 사용합니다.
             </div>
 
