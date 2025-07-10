@@ -49,6 +49,7 @@ export const EDUCATION_LEVELS = {
   HIGH_1: "고1",
   HIGH_2: "고2",
   HIGH_3: "고3",
+  ADULT: "성인",
 } as const;
 
 export type EducationLevel = (typeof EDUCATION_LEVELS)[keyof typeof EDUCATION_LEVELS];
