@@ -113,6 +113,17 @@ export interface GroupWithMembers {
 }
 
 /**
+ * 알림 생성 헬퍼 함수
+ */
+const createNotification = async (notificationData: NotificationInsert) => {
+  try {
+    await supabaseAdmin.from("notifications").insert(notificationData);
+  } catch (error) {
+    console.error("알림 생성 실패:", error);
+  }
+};
+
+/**
  * 그룹 상세 정보 조회
  */
 export const getGroupDetails = async (
@@ -592,6 +603,28 @@ export const transferGroupOwnership = async (
         .eq("user_id", newOwnerId);
       await supabaseAdmin.from("groups").update({ owner_id: currentOwnerId }).eq("id", groupId);
       return { success: false, error: "기존 소유자 역할 변경에 실패했습니다." };
+    }
+
+    // 4. 그룹 정보 조회
+    const { data: groupInfo } = await supabaseAdmin
+      .from("groups")
+      .select("name")
+      .eq("id", groupId)
+      .single();
+
+    // 5. 소유권 이전 알림 생성
+    if (groupInfo) {
+      await createNotification({
+        target_id: newOwnerId,
+        creator_id: currentOwnerId,
+        group_id: groupId,
+        related_id: groupId,
+        type: "소유권 이전",
+        title: `${groupInfo.name} 그룹의 소유자가 되었습니다`,
+        content: "그룹의 모든 권한이 이전되었습니다.",
+        action_url: `/groups/${groupId}`,
+        is_read: false,
+      });
     }
 
     return { success: true };
@@ -1146,7 +1179,7 @@ export const deleteGroupRole = async (
 };
 
 /**
- * 멤버 역할 변경
+ * 멤버 역할 변경 (알림 추가)
  */
 export const updateMemberRole = async (
   groupId: string,
@@ -1174,6 +1207,43 @@ export const updateMemberRole = async (
       return { success: false, error: "역할 관리 권한이 없습니다." };
     }
 
+    // 기존 멤버 정보 조회
+    const { data: targetMember } = await supabaseAdmin
+      .from("group_member")
+      .select(
+        `
+        user_id,
+        group_roles!group_member_group_role_id_fkey (name)
+      `
+      )
+      .eq("id", updateData.memberId)
+      .single();
+
+    if (!targetMember) {
+      return { success: false, error: "멤버를 찾을 수 없습니다." };
+    }
+
+    // 새 역할 정보 조회
+    const { data: newRole } = await supabaseAdmin
+      .from("group_roles")
+      .select("name")
+      .eq("id", updateData.newRoleId)
+      .single();
+
+    if (!newRole) {
+      return { success: false, error: "새 역할을 찾을 수 없습니다." };
+    }
+
+    // 그룹 정보 조회
+    const { data: groupInfo } = await supabaseAdmin
+      .from("groups")
+      .select("name")
+      .eq("id", groupId)
+      .single();
+
+    const oldRoleName = targetMember.group_roles?.name || "알 수 없음";
+
+    // 역할 변경
     const { error } = await supabaseAdmin
       .from("group_member")
       .update({ group_role_id: updateData.newRoleId })
@@ -1182,6 +1252,21 @@ export const updateMemberRole = async (
     if (error) {
       console.error("Update member role error:", error);
       return { success: false, error: "멤버 역할 변경에 실패했습니다." };
+    }
+
+    // 역할 변경 알림 생성
+    if (groupInfo && targetMember.user_id) {
+      await createNotification({
+        target_id: targetMember.user_id,
+        creator_id: userId,
+        group_id: groupId,
+        related_id: groupId,
+        type: "역할 변경",
+        title: `${groupInfo.name} 그룹에서 역할이 변경되었습니다`,
+        content: `${oldRoleName}에서 ${newRole.name}으로 역할이 변경되었습니다.`,
+        action_url: `/groups/${groupId}`,
+        is_read: false,
+      });
     }
 
     return { success: true };
@@ -1467,7 +1552,7 @@ export const checkPendingInvitation = async (
 };
 
 /**
- * 그룹 멤버 제거 (owner만 가능)
+ * 그룹 멤버 제거 (owner만 가능, 알림 추가)
  */
 export const removeGroupMember = async (
   groupId: string,
@@ -1478,7 +1563,7 @@ export const removeGroupMember = async (
     // 그룹 소유자인지 확인
     const { data: group } = await supabaseAdmin
       .from("groups")
-      .select("owner_id")
+      .select("owner_id, name")
       .eq("id", groupId)
       .single();
 
@@ -1537,6 +1622,19 @@ export const removeGroupMember = async (
     if (error) {
       return { success: false, error: "멤버 제거에 실패했습니다." };
     }
+
+    // 3. 제거 알림 생성
+    await createNotification({
+      target_id: memberUserId,
+      creator_id: ownerId,
+      group_id: groupId,
+      related_id: groupId,
+      type: "그룹 탈퇴",
+      title: `${group.name} 그룹에서 탈퇴되었습니다`,
+      content: "그룹 관리자에 의해 그룹에서 제거되었습니다.",
+      action_url: "/groups",
+      is_read: false,
+    });
 
     return { success: true };
   } catch (error) {
