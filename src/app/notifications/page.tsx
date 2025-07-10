@@ -16,6 +16,7 @@ import {
   Input,
   Select,
   Form,
+  Tag,
 } from "antd";
 import {
   BellOutlined,
@@ -27,6 +28,13 @@ import {
   MailOutlined,
   SearchOutlined,
   FilterOutlined,
+  UserOutlined,
+  ExclamationCircleOutlined,
+  CrownOutlined,
+  LogoutOutlined,
+  UserAddOutlined,
+  UserDeleteOutlined,
+  WarningOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -177,9 +185,13 @@ export default function NotificationsPage() {
 
   // 페이지 헤더 설정
   useEffect(() => {
+    const expiredNotifications = filteredNotifications.filter((notif) =>
+      isExpired(notif.expires_at)
+    );
+
     setPageHeader({
       title: "알림",
-      subtitle: "받은 알림을 확인하고 관리하세요",
+      subtitle: `받은 알림을 확인하고 관리하세요 (읽지 않음: ${unreadCount}개, 만료: ${expiredNotifications.length}개)`,
       actions: (
         <Space>
           <Button
@@ -198,7 +210,7 @@ export default function NotificationsPage() {
     });
 
     return () => setPageHeader(null);
-  }, [handleMarkAllAsRead, setPageHeader, unreadCount, searchFilterVisible]);
+  }, [handleMarkAllAsRead, setPageHeader, unreadCount, searchFilterVisible, filteredNotifications]);
 
   useEffect(() => {
     if (!user) {
@@ -262,16 +274,50 @@ export default function NotificationsPage() {
     }
   };
 
+  const isExpired = (expiresAt: string | null) => {
+    if (!expiresAt) return false;
+    return new Date(expiresAt) < new Date();
+  };
+
   const getNotificationIcon = (type: string | null) => {
     switch (type) {
       case "그룹 초대":
-        return <TeamOutlined style={{ color: "#1890ff" }} />;
       case "초대":
         return <MailOutlined style={{ color: "#52c41a" }} />;
+      case "역할 변경":
+        return <CrownOutlined style={{ color: "#faad14" }} />;
+      case "반 참여":
+        return <UserAddOutlined style={{ color: "#1890ff" }} />;
+      case "반 탈퇴":
+        return <UserDeleteOutlined style={{ color: "#ff4d4f" }} />;
+      case "그룹 탈퇴":
+        return <LogoutOutlined style={{ color: "#ff4d4f" }} />;
+      case "소유권 이전":
+        return <CrownOutlined style={{ color: "#722ed1" }} />;
       case "시스템":
         return <BellOutlined style={{ color: "#faad14" }} />;
       default:
         return <BellOutlined style={{ color: "#1890ff" }} />;
+    }
+  };
+
+  const getNotificationTypeColor = (type: string | null) => {
+    switch (type) {
+      case "그룹 초대":
+      case "초대":
+        return "green";
+      case "역할 변경":
+      case "소유권 이전":
+        return "gold";
+      case "반 참여":
+        return "blue";
+      case "반 탈퇴":
+      case "그룹 탈퇴":
+        return "red";
+      case "시스템":
+        return "orange";
+      default:
+        return "default";
     }
   };
 
@@ -294,11 +340,6 @@ export default function NotificationsPage() {
     return date.toLocaleDateString("ko-KR");
   };
 
-  const isExpired = (expiresAt: string | null) => {
-    if (!expiresAt) return false;
-    return new Date(expiresAt) < new Date();
-  };
-
   const NotificationCard = ({ notification }: { notification: NotificationWithDetails }) => {
     const expired = isExpired(notification.expires_at);
     const unread = !notification.is_read;
@@ -307,7 +348,7 @@ export default function NotificationsPage() {
       <Card
         hoverable={!expired}
         className={`
-          ${expired ? "opacity-60" : ""}
+          ${expired ? "opacity-60 bg-gray-50" : ""}
           ${unread ? "border-l-4 border-l-blue-500 bg-blue-50" : ""}
           transition-all duration-200
         `}
@@ -331,9 +372,12 @@ export default function NotificationsPage() {
                 </h4>
                 {unread && <Badge dot />}
                 {notification.type && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
-                    {notification.type}
-                  </span>
+                  <Tag color={getNotificationTypeColor(notification.type)}>{notification.type}</Tag>
+                )}
+                {expired && (
+                  <Tag color="red" icon={<WarningOutlined />}>
+                    만료됨
+                  </Tag>
                 )}
               </div>
 
@@ -353,7 +397,11 @@ export default function NotificationsPage() {
               <div className="flex items-center space-x-2 mt-1">
                 <ClockCircleOutlined className="text-xs text-gray-400" />
                 <span className="text-xs text-gray-400">{formatDate(notification.created_at)}</span>
-                {expired && <span className="text-xs text-red-500">(만료됨)</span>}
+                {notification.expires_at && (
+                  <span className={`text-xs ${expired ? "text-red-500" : "text-gray-400"}`}>
+                    • 만료: {formatDate(notification.expires_at)}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -413,6 +461,8 @@ export default function NotificationsPage() {
 
   const unreadNotifications = filteredNotifications.filter((n) => !n.is_read);
   const readNotifications = filteredNotifications.filter((n) => n.is_read);
+  const expiredNotifications = filteredNotifications.filter((n) => isExpired(n.expires_at));
+  const validNotifications = filteredNotifications.filter((n) => !isExpired(n.expires_at));
   const allNotificationTypes = Array.from(
     new Set(notifications.map((n) => n.type).filter(Boolean))
   );
@@ -456,6 +506,55 @@ export default function NotificationsPage() {
             ))
           ) : (
             <Empty description="읽은 알림이 없습니다." image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "valid",
+      label: (
+        <Space>
+          <CheckOutlined style={{ color: "#52c41a" }} />
+          유효한 알림 ({validNotifications.length})
+        </Space>
+      ),
+      children: (
+        <div className="space-y-3">
+          {validNotifications.length > 0 ? (
+            validNotifications.map((notification) => (
+              <NotificationCard key={notification.id} notification={notification} />
+            ))
+          ) : (
+            <Empty description="유효한 알림이 없습니다." image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "expired",
+      label: (
+        <Space>
+          <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />
+          만료된 알림 ({expiredNotifications.length})
+        </Space>
+      ),
+      children: (
+        <div className="space-y-3">
+          {expiredNotifications.length > 0 ? (
+            expiredNotifications.map((notification) => (
+              <NotificationCard key={notification.id} notification={notification} />
+            ))
+          ) : (
+            <Empty description="만료된 알림이 없습니다." image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+
+          {expiredNotifications.length > 10 && (
+            <Card size="small" className="bg-yellow-50 border-yellow-200">
+              <div className="text-sm text-yellow-700">
+                💡 <strong>정리 팁:</strong> 만료된 알림이 많이 쌓였습니다. 필요없는 알림들을
+                삭제하여 목록을 정리해보세요.
+              </div>
+            </Card>
           )}
         </div>
       ),
@@ -515,7 +614,7 @@ export default function NotificationsPage() {
                   <Select placeholder="알림 타입을 선택하세요" allowClear>
                     {allNotificationTypes.map((type) => (
                       <Select.Option key={type} value={type}>
-                        {type}
+                        <Tag color={getNotificationTypeColor(type)}>{type}</Tag>
                       </Select.Option>
                     ))}
                   </Select>
