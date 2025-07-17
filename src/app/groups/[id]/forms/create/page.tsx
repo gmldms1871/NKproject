@@ -453,11 +453,7 @@ export default function FormCreatePage() {
                         <Badge count={index + 1} size="small" />
                         {getQuestionIcon(question.type)}
                         <span className="font-medium">{getQuestionTypeName(question.type)}</span>
-                        {question.required && (
-                          <Tag color="red" size="small">
-                            필수
-                          </Tag>
-                        )}
+                        {question.required && <Tag color="red">필수</Tag>}
                       </div>
                       <Space>
                         <Button
