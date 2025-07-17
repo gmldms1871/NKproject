@@ -442,11 +442,7 @@ export default function FormResponsePage() {
             <div className="flex items-center space-x-3">
               <Badge count={index + 1} color={isCompleted ? "green" : "blue"} />
               <span className="text-base font-medium">{question.text}</span>
-              {question.required && (
-                <Tag color="red" size="small">
-                  필수
-                </Tag>
-              )}
+              {question.required && <Tag color="red">필수</Tag>}
             </div>
             <div className="flex items-center space-x-2">
               {isCompleted && <CheckCircleOutlined className="text-green-500" />}

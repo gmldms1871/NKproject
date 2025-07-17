@@ -117,11 +117,13 @@ export interface SummaryAnalytics {
     individual: number;
     bulk: number;
     overview: number;
+    custom: number;
   };
-  averageGenerationTime: number; // 초 단위
-  popularPromptTypes: {
-    type: string;
-    count: number;
+  averageGenerationTime: number; // 초
+  mostActiveUsers: {
+    userId: string;
+    userName: string;
+    summaryCount: number;
   }[];
   recentActivity: {
     date: string;
@@ -129,42 +131,46 @@ export interface SummaryAnalytics {
   }[];
 }
 
-// ===== 임시 저장소 (실제로는 DB 테이블 사용) =====
-const reportSummaries = new Map<string, GeneratedSummary>();
-const formOverviews = new Map<string, FormOverviewSummary>();
-const summaryAnalytics: SummaryAnalytics = {
-  totalSummariesGenerated: 0,
-  summariesByType: { individual: 0, bulk: 0, overview: 0 },
-  averageGenerationTime: 0,
-  popularPromptTypes: [],
-  recentActivity: [],
-};
+export interface FinalReport {
+  id: string;
+  formId: string;
+  formTitle: string;
+  studentId: string;
+  studentName: string;
+  className?: string;
+  submittedAt: string;
+  timeTeacherComment?: string;
+  teacherComment?: string;
+  stage: number;
+  hasSummary: boolean;
+  summaryGeneratedAt?: string;
+  summaryData?: GeneratedSummary;
+}
 
-// ===== Gemini AI 프롬프트 템플릿 =====
+// ===== 프롬프트 템플릿 =====
 
 const STUDENT_SUMMARY_PROMPT = `
-다음 학생의 폼 응답을 분석하여 간결하고 유용한 요약을 생성해주세요.
+다음은 학생의 폼 응답 내용입니다. 학생의 학습 상태와 성과를 간결하게 요약해주세요.
 
-학생 정보:
-- 이름: {studentName}
-- 반: {className}
-- 제출일: {submittedAt}
-
+학생명: {studentName}
+반: {className}
+제출일: {submittedAt}
 폼 제목: {formTitle}
 
 학생 응답:
 {studentResponses}
 
-다음 형식으로 요약해주세요:
-1. 핵심 내용 요약 (2-3문장)
-2. 주요 특징 및 패턴
-3. 주목할 점
+다음 관점에서 요약해주세요:
+1. 응답의 완성도와 성실성
+2. 학습 내용 이해도
+3. 특별한 강점이나 개선점
+4. 전반적인 학습 태도
 
-한국어로 작성하고, 교육적이고 건설적인 톤을 유지해주세요.
+요약은 3-4문장으로 작성해주세요.
 `;
 
 const TIME_TEACHER_SUMMARY_PROMPT = `
-다음 시간강사의 코멘트를 분석하여 핵심 내용을 요약해주세요.
+다음은 시간강사의 코멘트입니다. 핵심 내용을 요약해주세요.
 
 시간강사 코멘트:
 {timeTeacherComment}
@@ -172,75 +178,86 @@ const TIME_TEACHER_SUMMARY_PROMPT = `
 학생 응답 맥락:
 {studentContext}
 
-다음 관점에서 요약해주세요:
-1. 주요 피드백 내용
-2. 제안된 개선사항
-3. 긍정적 평가 요소
-
-간결하고 실용적인 한국어로 작성해주세요.
+시간강사의 관찰 내용과 지도 의견을 2-3문장으로 요약해주세요.
 `;
 
 const TEACHER_SUMMARY_PROMPT = `
-다음 부장선생님의 최종 코멘트를 분석하여 요약해주세요.
+다음은 부장선생님의 코멘트입니다. 핵심 내용을 요약해주세요.
 
 부장선생님 코멘트:
 {teacherComment}
 
-이전 시간강사 피드백:
-{timeTeacherContext}
-
 학생 응답 맥락:
 {studentContext}
 
-다음 관점에서 요약해주세요:
-1. 최종 평가 및 판단
-2. 향후 방향성 제시
-3. 종합적 의견
-
-교육적 가치가 있는 한국어로 작성해주세요.
+부장선생님의 평가와 향후 지도 방향을 2-3문장으로 요약해주세요.
 `;
 
 const OVERALL_SUMMARY_PROMPT = `
-다음 정보를 종합하여 완전한 보고서 요약을 생성해주세요.
+다음 정보를 종합하여 학생에 대한 전체적인 평가와 향후 지도 방안을 제시해주세요.
 
-학생 응답 요약: {studentSummary}
-시간강사 코멘트 요약: {timeTeacherSummary}
-부장선생님 코멘트 요약: {teacherSummary}
+학생 응답 요약:
+{studentSummary}
 
-다음 구조로 종합 요약을 작성해주세요:
+시간강사 코멘트 요약:
+{timeTeacherSummary}
 
-1. 전체 개요 (3-4문장)
-2. 주요 강점 (3-5개 항목)
-3. 개선 필요 영역 (3-5개 항목)
-4. 구체적 권장사항 (3-5개 항목)
+부장선생님 코멘트 요약:
+{teacherSummary}
 
-교육적이고 실행 가능한 내용으로 한국어로 작성해주세요.
+다음 형식으로 작성해주세요:
+
+**주요 강점:**
+- 강점 1
+- 강점 2
+
+**개선 필요 사항:**
+- 개선점 1
+- 개선점 2
+
+**권장사항:**
+- 권장사항 1
+- 권장사항 2
+
+**종합 평가:**
+학생의 전반적인 상태와 향후 지도 방향을 2-3문장으로 요약.
 `;
 
 const FORM_OVERVIEW_PROMPT = `
-다음 폼의 모든 보고서를 분석하여 전체적인 인사이트를 제공해주세요.
+다음은 폼의 전체 응답 데이터입니다. 전체적인 경향과 패턴을 분석해주세요.
 
-폼 정보:
-- 제목: {formTitle}
-- 총 응답 수: {totalReports}
-- 완료된 보고서 수: {completedReports}
+폼 제목: {formTitle}
+총 응답 수: {totalReports}
+완료된 응답 수: {completedReports}
 
-개별 보고서 요약들:
+개별 응답 요약:
 {individualSummaries}
 
-다음 분석을 제공해주세요:
+다음 관점에서 분석해주세요:
+1. 전체적인 학습 성취도
+2. 공통적으로 나타나는 강점
+3. 공통적으로 나타나는 약점
+4. 개선을 위한 전체적인 권장사항
 
-1. 전체 학생들의 공통 강점 (5개 이하)
-2. 주요 개선 필요 영역 (5개 이하)  
-3. 전체적인 권장사항 (5개 이하)
-4. 성과 분포 분석
-   - 우수: 상위 25%
-   - 양호: 상위 25-50%
-   - 보통: 하위 25-50%
-   - 개선필요: 하위 25%
-
-교육적 가치가 있고 실행 가능한 한국어로 작성해주세요.
+분석 결과를 체계적으로 정리해주세요.
 `;
+
+// ===== 임시 저장소 (실제로는 데이터베이스 사용) =====
+
+const reportSummaries = new Map<string, GeneratedSummary>();
+const formOverviews = new Map<string, FormOverviewSummary>();
+const summaryAnalytics: SummaryAnalytics = {
+  totalSummariesGenerated: 0,
+  summariesByType: {
+    individual: 0,
+    bulk: 0,
+    overview: 0,
+    custom: 0,
+  },
+  averageGenerationTime: 0,
+  mostActiveUsers: [],
+  recentActivity: [],
+};
 
 // ===== 유틸리티 함수들 =====
 
@@ -251,79 +268,57 @@ async function collectReportData(reportId: string): Promise<ReportSummaryData | 
   try {
     const { data: report, error: reportError } = await supabaseAdmin
       .from("reports")
-      .select("*")
+      .select(
+        `
+        *,
+        forms(title),
+        form_responses(
+          *,
+          users(name)
+        )
+      `
+      )
       .eq("id", reportId)
       .single();
 
-    if (reportError || !report) {
-      console.error("Report not found:", reportError);
-      return null;
-    }
+    if (reportError) throw reportError;
 
-    // 폼 정보 조회
-    const { data: form } = await supabaseAdmin
-      .from("forms")
-      .select("title")
-      .eq("id", report.form_id || "")
-      .single();
-
-    // 질문 응답 데이터 수집
-    if (!report.form_response_id) {
-      console.error("No form response found for report:", reportId);
-      return null;
-    }
-
-    const { data: formResponse } = await supabaseAdmin
-      .from("form_responses")
-      .select(
-        `
-        status, submitted_at, student_id,
-        users!form_responses_student_id_fkey (name, nickname)
-      `
-      )
-      .eq("id", report.form_response_id)
-      .single();
-
-    const { data: questionResponses } = await supabaseAdmin
+    const { data: questionResponses, error: responsesError } = await supabaseAdmin
       .from("form_question_responses")
       .select(
         `
         *,
-        form_questions!form_question_responses_question_id_fkey (
-          question_text, question_type, is_required, order_index
-        )
+        form_questions(*)
       `
       )
-      .eq("form_response_id", report.form_response_id);
+      .eq("form_response_id", report.form_response_id || "")
+      .order("form_questions.order_index", { ascending: true });
 
-    // 안전한 타입 변환
-    const responses: QuestionResponseData[] = (questionResponses || [])
-      .filter((qr) => qr.form_questions) // null 체크
-      .map((qr) => ({
-        questionId: qr.question_id || "",
-        questionType: qr.form_questions!.question_type,
-        questionText: qr.form_questions!.question_text,
-        isRequired: qr.form_questions!.is_required || false,
-        orderIndex: qr.form_questions!.order_index,
-        response: {
-          textResponse: qr.text_response || undefined,
-          numberResponse: qr.number_response || undefined,
-          ratingResponse: qr.rating_response || undefined,
-          examResponse: qr.exam_response
-            ? (qr.exam_response as Record<string, unknown>)
-            : undefined,
-        },
-      }));
+    if (responsesError) throw responsesError;
+
+    const responses: QuestionResponseData[] = (questionResponses || []).map((qr: any) => ({
+      questionId: qr.question_id,
+      questionType: qr.form_questions.question_type,
+      questionText: qr.form_questions.question_text,
+      isRequired: qr.form_questions.is_required,
+      orderIndex: qr.form_questions.order_index,
+      response: {
+        textResponse: qr.text_response,
+        numberResponse: qr.number_response,
+        ratingResponse: qr.rating_response,
+        examResponse: qr.exam_response ? (qr.exam_response as Record<string, unknown>) : undefined,
+      },
+    }));
 
     return {
       reportId,
-      formTitle: form?.title || "Unknown Form",
-      studentName: formResponse?.users?.name || "Unknown Student",
+      formTitle: report.forms?.title || "Unknown Form",
+      studentName: report.form_responses?.users?.name || "Unknown Student",
       className: report.class_name || undefined,
       studentResponses: responses.sort((a, b) => a.orderIndex - b.orderIndex),
       timeTeacherComment: report.time_teacher_comment || undefined,
       teacherComment: report.teacher_comment || undefined,
-      submittedAt: formResponse?.submitted_at || undefined,
+      submittedAt: report.form_responses?.submitted_at || undefined,
       stage: report.stage || 0,
     };
   } catch (error) {
@@ -478,13 +473,12 @@ export async function generateReportSummary(
     if (reportData.teacherComment) {
       const teacherPrompt = renderPrompt(TEACHER_SUMMARY_PROMPT, {
         teacherComment: reportData.teacherComment,
-        timeTeacherContext: reportData.timeTeacherComment || "시간강사 코멘트 없음",
         studentContext: formatStudentResponses(reportData.studentResponses),
       });
       teacherSummary = await generateAISummary(teacherPrompt);
     }
 
-    // 4. 종합 요약 생성
+    // 4. 전체 요약 생성
     const overallPrompt = renderPrompt(OVERALL_SUMMARY_PROMPT, {
       studentSummary,
       timeTeacherSummary,
@@ -495,8 +489,8 @@ export async function generateReportSummary(
     // 5. 인사이트 추출
     const insights = extractInsights(overallSummary);
 
-    // 6. 최종 요약 객체 생성
     const summary: GeneratedSummary = {
+      id: `summary_${request.reportId}_${Date.now()}`,
       reportId: request.reportId,
       studentSummary,
       timeTeacherSummary,
@@ -511,19 +505,21 @@ export async function generateReportSummary(
     reportSummaries.set(request.reportId, summary);
 
     // 통계 업데이트
-    const generationTime = (Date.now() - startTime) / 1000;
     summaryAnalytics.totalSummariesGenerated++;
     summaryAnalytics.summariesByType.individual++;
+
+    const endTime = Date.now();
+    const generationTime = (endTime - startTime) / 1000;
     summaryAnalytics.averageGenerationTime =
       (summaryAnalytics.averageGenerationTime + generationTime) / 2;
 
-    // 생성 완료 알림
+    // 요약 생성 완료 알림
     await createNotification({
       target_id: request.userId,
       creator_id: null,
       type: "summary_generated",
       title: "보고서 요약 생성 완료",
-      content: `"${reportData.formTitle}" 보고서의 AI 요약이 생성되었습니다.`,
+      content: `${reportData.studentName} 학생의 보고서 요약이 생성되었습니다.`,
       action_url: `/reports/${request.reportId}/summary`,
       related_id: request.reportId,
       is_read: false,
@@ -538,11 +534,59 @@ export async function generateReportSummary(
 }
 
 /**
- * 여러 보고서 일괄 요약 생성
+ * 모든 최종 보고서 조회
  */
-export async function bulkGenerateReportSummaries(
-  request: BulkGenerateSummaryRequest
-): Promise<ApiResponse<GeneratedSummary[]>> {
+export async function getAllFinalReports(groupId: string): Promise<ApiResponse<FinalReport[]>> {
+  try {
+    const { data: reports, error } = await supabaseAdmin
+      .from("reports")
+      .select(
+        `
+        *,
+        forms!inner(id, title, group_id),
+        form_responses(
+          *,
+          users(name, nickname)
+        )
+      `
+      )
+      .eq("forms.group_id", groupId)
+      .eq("stage", 3) // 완료된 보고서만
+      .order("updated_at", { ascending: false });
+
+    if (error) throw error;
+
+    const finalReports: FinalReport[] = (reports || []).map((report: any) => ({
+      id: report.id,
+      formId: report.form_id,
+      formTitle: report.forms?.title || "Unknown Form",
+      studentId: report.form_responses?.student_id || "unknown",
+      studentName: report.form_responses?.users?.name || report.student_name || "Unknown Student",
+      className: report.class_name || undefined,
+      submittedAt: report.form_responses?.submitted_at || report.updated_at,
+      timeTeacherComment: report.time_teacher_comment || undefined,
+      teacherComment: report.teacher_comment || undefined,
+      stage: report.stage,
+      hasSummary: reportSummaries.has(report.id),
+      summaryGeneratedAt: reportSummaries.get(report.id)?.generatedAt,
+      summaryData: reportSummaries.get(report.id),
+    }));
+
+    return { success: true, data: finalReports };
+  } catch (error) {
+    console.error("Error getting final reports:", error);
+    return { success: false, error: "최종 보고서 조회 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 일괄 요약 생성
+ */
+export async function bulkGenerateSummary(request: {
+  reportIds: string[];
+  userId: string;
+  groupId: string;
+}): Promise<ApiResponse<GeneratedSummary[]>> {
   try {
     const summaries: GeneratedSummary[] = [];
     const errors: string[] = [];
@@ -592,6 +636,11 @@ export async function bulkGenerateReportSummaries(
     return { success: false, error: "일괄 요약 생성 중 오류가 발생했습니다." };
   }
 }
+
+/**
+ * 최종 보고서 요약 조회 (generateReportSummary의 별칭)
+ */
+export const getFinalReportSummary = generateReportSummary;
 
 /**
  * 폼 전체 개요 요약 생성
@@ -738,6 +787,9 @@ export async function generateCustomSummary(
     });
 
     const customSummary = await generateAISummary(prompt);
+
+    // 통계 업데이트
+    summaryAnalytics.summariesByType.custom++;
 
     return { success: true, data: customSummary };
   } catch (error) {

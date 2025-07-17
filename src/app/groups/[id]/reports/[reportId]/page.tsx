@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import type { StepProps } from "antd/es/steps";
 import { useRouter, useParams } from "next/navigation";
 import {
   Card,
@@ -393,12 +394,11 @@ export default function ReportDetailPage() {
     }
   };
 
-  // 진행 단계 설정
-  const getSteps = () => {
-    const steps = [
+  const getSteps = (): StepProps[] => {
+    const steps: StepProps[] = [
       {
         title: "응답 완료",
-        status: "finish" as const,
+        status: "finish",
         icon: <CheckCircleOutlined />,
         description: report?.formResponse?.submitted_at
           ? dayjs(report.formResponse.submitted_at).format("MM/DD HH:mm")
@@ -406,10 +406,7 @@ export default function ReportDetailPage() {
       },
       {
         title: "시간강사 검토",
-        status:
-          (report?.stage || 0) > 1
-            ? "finish"
-            : ((report?.stage === 1 ? "process" : "wait") as const),
+        status: (report?.stage || 0) > 1 ? "finish" : report?.stage === 1 ? "process" : "wait",
         icon: report?.stage === 1 ? <ClockCircleOutlined /> : <CheckCircleOutlined />,
         description: report?.time_teacher_completed_at
           ? dayjs(report.time_teacher_completed_at).format("MM/DD HH:mm")
@@ -417,10 +414,7 @@ export default function ReportDetailPage() {
       },
       {
         title: "선생님 검토",
-        status:
-          (report?.stage || 0) > 2
-            ? "finish"
-            : ((report?.stage === 2 ? "process" : "wait") as const),
+        status: (report?.stage || 0) > 2 ? "finish" : report?.stage === 2 ? "process" : "wait",
         icon: report?.stage === 2 ? <ClockCircleOutlined /> : <CheckCircleOutlined />,
         description: report?.teacher_completed_at
           ? dayjs(report.teacher_completed_at).format("MM/DD HH:mm")
@@ -428,7 +422,7 @@ export default function ReportDetailPage() {
       },
       {
         title: "완료",
-        status: (report?.stage || 0) === 3 ? "finish" : ("wait" as const),
+        status: (report?.stage || 0) === 3 ? "finish" : "wait",
         icon: <CheckCircleOutlined />,
         description: (report?.stage || 0) === 3 ? "검토 완료" : "",
       },
@@ -462,7 +456,7 @@ export default function ReportDetailPage() {
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* 진행 상태 */}
         <Card className="mb-6">
-          <Steps current={report.stage} items={getSteps()} />
+          <Steps current={report.stage ?? undefined} items={getSteps()} />
 
           {report.rejected_at && (
             <Alert
@@ -515,11 +509,7 @@ export default function ReportDetailPage() {
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-2">
                       <Text strong>{response.questionText}</Text>
-                      {response.isRequired && (
-                        <Tag color="red" size="small">
-                          필수
-                        </Tag>
-                      )}
+                      {response.isRequired && <Tag color="red">필수</Tag>}
                     </div>
                     {renderResponse(response)}
                   </div>

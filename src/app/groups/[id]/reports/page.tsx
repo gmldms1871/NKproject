@@ -729,7 +729,7 @@ export default function ReportsListPage() {
             }}
             rowSelection={{
               selectedRowKeys,
-              onChange: setSelectedRowKeys,
+              onChange: (selectedRowKeys) => setSelectedRowKeys(selectedRowKeys as string[]),
             }}
             locale={{
               emptyText: (

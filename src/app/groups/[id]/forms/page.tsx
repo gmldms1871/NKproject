@@ -324,9 +324,7 @@ export default function FormsListPage() {
       render: (tags: any[]) => (
         <div>
           {tags.slice(0, 2).map((tag) => (
-            <Tag key={tag.id} size="small">
-              {tag.name}
-            </Tag>
+            <Tag key={tag.id}>{tag.name}</Tag>
           ))}
           {tags.length > 2 && (
             <Tooltip
@@ -335,7 +333,7 @@ export default function FormsListPage() {
                 .map((t) => t.name)
                 .join(", ")}
             >
-              <Tag size="small">+{tags.length - 2}</Tag>
+              <Tag>+{tags.length - 2}</Tag>
             </Tooltip>
           )}
         </div>
@@ -374,13 +372,11 @@ export default function FormsListPage() {
             key: "view",
             icon: <EyeOutlined />,
             label: "상세 보기",
-            onClick: () => router.push(`/groups/${groupId}/forms/${record.id}`),
           },
           {
             key: "responses",
             icon: <BarChartOutlined />,
             label: "응답 조회",
-            onClick: () => router.push(`/groups/${groupId}/forms/${record.id}/responses`),
           },
           ...(record.status === "draft"
             ? [
@@ -388,7 +384,6 @@ export default function FormsListPage() {
                   key: "edit",
                   icon: <EditOutlined />,
                   label: "수정",
-                  onClick: () => router.push(`/groups/${groupId}/forms/${record.id}/edit`),
                 },
               ]
             : []),
@@ -398,7 +393,6 @@ export default function FormsListPage() {
                   key: "send",
                   icon: <SendOutlined />,
                   label: "전송",
-                  onClick: () => router.push(`/groups/${groupId}/forms/${record.id}/send`),
                 },
               ]
             : []),
@@ -406,28 +400,49 @@ export default function FormsListPage() {
             key: "duplicate",
             icon: <CopyOutlined />,
             label: "복제",
-            onClick: () => handleDuplicateForm(record.id, record.title),
           },
           {
-            type: "divider",
+            type: "divider" as const,
           },
           {
             key: "delete",
             icon: <DeleteOutlined />,
             label: "삭제",
             danger: true,
-            onClick: () => {
+          },
+        ];
+
+        const handleMenuClick = ({ key }: { key: string }) => {
+          switch (key) {
+            case "view":
+              router.push(`/groups/${groupId}/forms/${record.id}`);
+              break;
+            case "responses":
+              router.push(`/groups/${groupId}/forms/${record.id}/responses`);
+              break;
+            case "edit":
+              router.push(`/groups/${groupId}/forms/${record.id}/edit`);
+              break;
+            case "send":
+              router.push(`/groups/${groupId}/forms/${record.id}/send`);
+              break;
+            case "duplicate":
+              handleDuplicateForm(record.id, record.title);
+              break;
+            case "delete":
               Modal.confirm({
                 title: "폼 삭제",
                 content: `"${record.title}" 폼을 삭제하시겠습니까?`,
                 onOk: () => handleDeleteForm(record.id),
               });
-            },
-          },
-        ];
+              break;
+            default:
+              break;
+          }
+        };
 
         return (
-          <Dropdown menu={{ items: menuItems }} trigger={["click"]}>
+          <Dropdown menu={{ items: menuItems, onClick: handleMenuClick }} trigger={["click"]}>
             <Button type="text" icon={<MoreOutlined />} />
           </Dropdown>
         );
@@ -560,7 +575,7 @@ export default function FormsListPage() {
             }}
             rowSelection={{
               selectedRowKeys,
-              onChange: setSelectedRowKeys,
+              onChange: (selectedRowKeys) => setSelectedRowKeys(selectedRowKeys as string[]),
             }}
             locale={{
               emptyText: (

@@ -146,7 +146,7 @@ export default function FormSendPage() {
         const classInfo: ClassInfo[] = classesResult.data.map((cls) => ({
           id: cls.id,
           name: cls.name,
-          description: cls.description,
+          description: cls.description === null ? undefined : cls.description,
           memberCount: cls.memberCount || 0,
           tags: cls.class_tags.map((tag) => tag.name),
         }));

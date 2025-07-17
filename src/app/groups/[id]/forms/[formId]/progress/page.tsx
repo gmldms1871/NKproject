@@ -35,6 +35,7 @@ import {
   ReloadOutlined,
   DownloadOutlined,
   WarningOutlined,
+  QuestionCircleOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -129,7 +130,7 @@ export default function FormProgressPage() {
     }
 
     return () => setPageHeader(null);
-  }, [setPageHeader, groupId, formId, form, stats]);
+  }, [setPageHeader, groupId, formId, form, stats, router]);
 
   // 폼 데이터 로드
   const loadFormData = useCallback(async () => {

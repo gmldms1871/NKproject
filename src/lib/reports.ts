@@ -7,14 +7,11 @@ type Report = Database["public"]["Tables"]["reports"]["Row"];
 type ReportInsert = Database["public"]["Tables"]["reports"]["Insert"];
 type ReportUpdate = Database["public"]["Tables"]["reports"]["Update"];
 
-type FormResponse = Database["public"]["Tables"]["form_responses"]["Row"];
-type FormQuestionResponse = Database["public"]["Tables"]["form_question_responses"]["Row"];
 type Form = Database["public"]["Tables"]["forms"]["Row"];
+type FormResponse = Database["public"]["Tables"]["form_responses"]["Row"];
 type FormQuestion = Database["public"]["Tables"]["form_questions"]["Row"];
-type FormTarget = Database["public"]["Tables"]["form_targets"]["Row"];
+type FormQuestionResponse = Database["public"]["Tables"]["form_question_responses"]["Row"];
 type User = Database["public"]["Tables"]["users"]["Row"];
-type Class = Database["public"]["Tables"]["classes"]["Row"];
-type SupervisionMapping = Database["public"]["Tables"]["supervision_mappings"]["Row"];
 type NotificationInsert = Database["public"]["Tables"]["notifications"]["Insert"];
 
 // API 응답 타입 정의
@@ -26,11 +23,21 @@ export interface ApiResponse<T = unknown> {
 
 // ===== 요청 타입 정의 =====
 
+export interface CreateReportRequest {
+  formId: string;
+  formResponseId: string;
+  studentName: string;
+  className?: string;
+  timeTeacherId?: string;
+  teacherId?: string;
+  supervisionId?: string;
+}
+
 export interface AddCommentRequest {
   reportId: string;
   userId: string;
   comment: string;
-  commentType: "time_teacher" | "teacher"; // 시간강사 또는 부장선생님
+  commentType: "time_teacher" | "teacher";
 }
 
 export interface RejectReportRequest {
@@ -45,15 +52,22 @@ export interface ResetReportRequest {
   resetReason: string;
 }
 
+export interface AdvanceReportStageRequest {
+  reportId: string;
+  userId: string;
+  comment?: string;
+  commentType: "time_teacher" | "teacher";
+}
+
 export interface ReportSearchConditions {
+  groupId?: string;
   formId?: string;
   studentName?: string;
   className?: string;
   stage?: number[];
-  status?: string[]; // 'completed', 'in_progress', 'rejected', 'reset'
+  status?: string[];
   createdAfter?: string;
   createdBefore?: string;
-  groupId: string;
   timeTeacherId?: string;
   teacherId?: string;
 }
@@ -192,29 +206,6 @@ export interface FinalReportData {
 // ===== 유틸리티 함수들 =====
 
 /**
- * 보고서 관련 알림 생성
- */
-async function createReportNotification(
-  recipientId: string,
-  type: string,
-  title: string,
-  message: string,
-  reportId: string
-): Promise<void> {
-  await createNotification({
-    target_id: recipientId,
-    creator_id: null,
-    type,
-    title,
-    content: message,
-    action_url: `/reports/${reportId}`,
-    related_id: reportId,
-    is_read: false,
-    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30일 후 만료
-  });
-}
-
-/**
  * 보고서 진행 상태 계산
  */
 function calculateProgressInfo(report: Report): ReportWithDetails["progressInfo"] {
@@ -225,38 +216,28 @@ function calculateProgressInfo(report: Report): ReportWithDetails["progressInfo"
 
   if (report.rejected_at) {
     status = "rejected";
-    canEdit = false;
-    nextAction = "학생이 폼을 다시 작성해야 합니다";
-  } else if (report.draft_status === "reset") {
-    status = "reset";
-    canEdit = true;
-    nextAction = "학생이 폼을 수정하여 재제출할 수 있습니다";
   } else {
     switch (stage) {
       case 0:
         status = "waiting_response";
-        canEdit = true;
         nextAction = "학생 응답 대기 중";
         break;
       case 1:
         status = "waiting_time_teacher";
-        canEdit = false;
-        nextAction = "시간강사 검토 대기 중";
+        canEdit = true;
+        nextAction = "시간강사 검토 필요";
         break;
       case 2:
         status = "waiting_teacher";
-        canEdit = false;
-        nextAction = "부장선생님 검토 대기 중";
+        canEdit = true;
+        nextAction = "선생님 검토 필요";
         break;
       case 3:
         status = "completed";
-        canEdit = false;
-        nextAction = "최종 완료";
+        nextAction = "완료됨";
         break;
       default:
         status = "waiting_response";
-        canEdit = true;
-        nextAction = "학생 응답 대기 중";
     }
   }
 
@@ -268,44 +249,499 @@ function calculateProgressInfo(report: Report): ReportWithDetails["progressInfo"
   };
 }
 
-// ===== 보고서 조회 함수들 =====
-
 /**
- * 그룹 내 모든 보고서 조회
+ * 폼 응답 데이터 수집
  */
-export async function getAllReportsInGroup(
-  groupId: string,
-  userId: string
-): Promise<ApiResponse<ReportWithDetails[]>> {
+async function collectFormResponseData(formResponseId: string): Promise<FormResponseData | null> {
   try {
-    // 사용자가 그룹 멤버인지 확인
-    const { data: memberCheck } = await supabaseAdmin
-      .from("group_member")
-      .select("id")
-      .eq("group_id", groupId)
-      .eq("user_id", userId)
+    const { data: formResponse, error: responseError } = await supabaseAdmin
+      .from("form_responses")
+      .select("*")
+      .eq("id", formResponseId)
       .single();
 
-    if (!memberCheck) {
-      return { success: false, error: "그룹 멤버만 보고서를 조회할 수 있습니다." };
+    if (responseError) throw responseError;
+
+    const { data: questionResponses, error: questionsError } = await supabaseAdmin
+      .from("form_question_responses")
+      .select(
+        `
+        *,
+        form_questions(*)
+      `
+      )
+      .eq("form_response_id", formResponseId)
+      .order("form_questions.order_index", { ascending: true });
+
+    if (questionsError) throw questionsError;
+
+    const responses: QuestionResponseData[] = (questionResponses || []).map((qr: any) => ({
+      questionId: qr.question_id,
+      questionType: qr.form_questions.question_type,
+      questionText: qr.form_questions.question_text,
+      isRequired: qr.form_questions.is_required,
+      orderIndex: qr.form_questions.order_index,
+      response: {
+        textResponse: qr.text_response,
+        numberResponse: qr.number_response,
+        ratingResponse: qr.rating_response,
+        examResponse: qr.exam_response,
+      },
+    }));
+
+    return {
+      id: formResponse.id,
+      status: formResponse.status,
+      submitted_at: formResponse.submitted_at,
+      responses,
+    };
+  } catch (error) {
+    console.error("Error collecting form response data:", error);
+    return null;
+  }
+}
+
+// ===== 메인 API 함수들 =====
+
+/**
+ * 보고서 생성
+ */
+export async function createReport(request: CreateReportRequest): Promise<ApiResponse<string>> {
+  try {
+    const { data: report, error } = await supabaseAdmin
+      .from("reports")
+      .insert({
+        form_id: request.formId,
+        form_response_id: request.formResponseId,
+        student_name: request.studentName,
+        class_name: request.className,
+        time_teacher_id: request.timeTeacherId,
+        teacher_id: request.teacherId,
+        supervision_id: request.supervisionId,
+        stage: 1, // 시간강사 검토 대기
+        draft_status: "waiting_time_teacher",
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    // 시간강사에게 알림
+    if (request.timeTeacherId) {
+      await createNotification({
+        target_id: request.timeTeacherId,
+        creator_id: null,
+        type: "report_assigned",
+        title: "새로운 보고서 검토 요청",
+        content: `학생 ${request.studentName}의 보고서 검토가 요청되었습니다.`,
+        action_url: `/reports/${report.id}`,
+        related_id: report.id,
+        is_read: false,
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      });
     }
 
-    // 그룹의 폼들과 연결된 보고서 조회
+    return { success: true, data: report.id };
+  } catch (error) {
+    console.error("Error creating report:", error);
+    return { success: false, error: "보고서 생성 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 보고서 상세 조회
+ */
+export async function getReportDetails(reportId: string): Promise<ApiResponse<ReportWithDetails>> {
+  try {
+    const { data: report, error } = await supabaseAdmin
+      .from("reports")
+      .select(
+        `
+        *,
+        forms(
+          id, title, description, created_at,
+          creator:users!forms_creator_id_fkey(name)
+        ),
+        form_responses(
+          *,
+          student:users!form_responses_student_id_fkey(id, name, nickname)
+        ),
+        time_teacher:users!reports_time_teacher_id_fkey(id, name, nickname),
+        teacher:users!reports_teacher_id_fkey(id, name, nickname)
+      `
+      )
+      .eq("id", reportId)
+      .single();
+
+    if (error) throw error;
+    if (!report) {
+      return { success: false, error: "보고서를 찾을 수 없습니다." };
+    }
+
+    // 폼 응답 데이터 수집
+    let formResponse: FormResponseData | null = null;
+    if (report.form_response_id) {
+      formResponse = await collectFormResponseData(report.form_response_id);
+    }
+
+    const reportWithDetails: ReportWithDetails = {
+      id: report.id,
+      form_id: report.form_id,
+      form_response_id: report.form_response_id,
+      stage: report.stage,
+      student_name: report.student_name,
+      class_name: report.class_name,
+      teacher_id: report.teacher_id,
+      time_teacher_id: report.time_teacher_id,
+      supervision_id: report.supervision_id,
+      teacher_comment: report.teacher_comment,
+      teacher_completed_at: report.teacher_completed_at,
+      time_teacher_comment: report.time_teacher_comment,
+      time_teacher_completed_at: report.time_teacher_completed_at,
+      rejected_at: report.rejected_at,
+      rejected_by: report.rejected_by,
+      rejection_reason: report.rejection_reason,
+      draft_status: report.draft_status,
+      created_at: report.created_at,
+      updated_at: report.updated_at,
+      form: report.forms
+        ? {
+            id: report.forms.id,
+            title: report.forms.title,
+            description: report.forms.description,
+            creator_name: report.forms.creator?.name || "Unknown",
+            created_at: report.forms.created_at,
+          }
+        : null,
+      student: report.form_responses?.student
+        ? {
+            id: report.form_responses.student.id,
+            name: report.form_responses.student.name,
+            nickname: report.form_responses.student.nickname,
+            class_name: report.class_name || undefined,
+          }
+        : null,
+      timeTeacher: report.time_teacher
+        ? {
+            id: report.time_teacher.id,
+            name: report.time_teacher.name,
+            nickname: report.time_teacher.nickname,
+          }
+        : undefined,
+      teacher: report.teacher
+        ? {
+            id: report.teacher.id,
+            name: report.teacher.name,
+            nickname: report.teacher.nickname,
+          }
+        : undefined,
+      formResponse,
+      progressInfo: calculateProgressInfo(report),
+    };
+
+    return { success: true, data: reportWithDetails };
+  } catch (error) {
+    console.error("Error fetching report details:", error);
+    return { success: false, error: "보고서 상세 조회 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 보고서 코멘트 추가
+ */
+export async function addReportComment(request: AddCommentRequest): Promise<ApiResponse<boolean>> {
+  try {
+    const updateData: any = {};
+
+    if (request.commentType === "time_teacher") {
+      updateData.time_teacher_comment = request.comment;
+      updateData.time_teacher_completed_at = new Date().toISOString();
+      updateData.stage = 2; // 다음 단계로 진행
+      updateData.draft_status = "waiting_teacher";
+    } else {
+      updateData.teacher_comment = request.comment;
+      updateData.teacher_completed_at = new Date().toISOString();
+      updateData.stage = 3; // 완료 단계로 진행
+      updateData.draft_status = "completed";
+    }
+
+    updateData.updated_at = new Date().toISOString();
+
+    const { error } = await supabaseAdmin
+      .from("reports")
+      .update(updateData)
+      .eq("id", request.reportId);
+
+    if (error) throw error;
+
+    // 다음 담당자에게 알림
+    if (request.commentType === "time_teacher") {
+      const { data: report } = await supabaseAdmin
+        .from("reports")
+        .select("teacher_id, student_name")
+        .eq("id", request.reportId)
+        .single();
+
+      if (report?.teacher_id) {
+        await createNotification({
+          target_id: report.teacher_id,
+          creator_id: request.userId,
+          type: "report_stage_advanced",
+          title: "보고서 검토 요청",
+          content: `${report.student_name} 학생의 보고서 검토가 요청되었습니다.`,
+          action_url: `/reports/${request.reportId}`,
+          related_id: request.reportId,
+          is_read: false,
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      }
+    }
+
+    return { success: true, data: true };
+  } catch (error) {
+    console.error("Error adding report comment:", error);
+    return { success: false, error: "코멘트 추가 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 보고서 반려
+ */
+export async function rejectReport(request: RejectReportRequest): Promise<ApiResponse<boolean>> {
+  try {
+    const { error } = await supabaseAdmin
+      .from("reports")
+      .update({
+        rejected_at: new Date().toISOString(),
+        rejected_by: request.rejectedBy,
+        rejection_reason: request.rejectionReason,
+        draft_status: "rejected",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", request.reportId);
+
+    if (error) throw error;
+
+    // 보고서 반려 알림
+    const { data: report } = await supabaseAdmin
+      .from("reports")
+      .select("form_responses(student_id), student_name")
+      .eq("id", request.reportId)
+      .single();
+
+    if (report?.form_responses?.student_id) {
+      await createNotification({
+        target_id: report.form_responses.student_id,
+        creator_id: request.rejectedBy,
+        type: "report_rejected",
+        title: "보고서가 반려되었습니다",
+        content: `반려 사유: ${request.rejectionReason}`,
+        action_url: `/reports/${request.reportId}`,
+        related_id: request.reportId,
+        is_read: false,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+
+    return { success: true, data: true };
+  } catch (error) {
+    console.error("Error rejecting report:", error);
+    return { success: false, error: "보고서 반려 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 보고서 리셋
+ */
+export async function resetReport(request: ResetReportRequest): Promise<ApiResponse<boolean>> {
+  try {
+    const { error } = await supabaseAdmin
+      .from("reports")
+      .update({
+        stage: 0, // 첫 번째 단계로 되돌림
+        time_teacher_comment: null,
+        teacher_comment: null,
+        time_teacher_completed_at: null,
+        teacher_completed_at: null,
+        rejected_at: null,
+        rejected_by: null,
+        rejection_reason: null,
+        draft_status: "waiting_response",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", request.reportId);
+
+    if (error) throw error;
+
+    // 보고서 리셋 알림
+    const { data: report } = await supabaseAdmin
+      .from("reports")
+      .select("form_responses(student_id), student_name")
+      .eq("id", request.reportId)
+      .single();
+
+    if (report?.form_responses?.student_id) {
+      await createNotification({
+        target_id: report.form_responses.student_id,
+        creator_id: request.resetBy,
+        type: "report_reset",
+        title: "보고서가 리셋되었습니다",
+        content: `사유: ${request.resetReason}`,
+        action_url: `/reports/${request.reportId}`,
+        related_id: request.reportId,
+        is_read: false,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+    }
+
+    return { success: true, data: true };
+  } catch (error) {
+    console.error("Error resetting report:", error);
+    return { success: false, error: "보고서 리셋 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 보고서 검색
+ */
+export async function searchReports(
+  conditions: ReportSearchConditions
+): Promise<ApiResponse<ReportWithDetails[]>> {
+  try {
+    let query = supabaseAdmin.from("reports").select(
+      `
+        *,
+        forms(
+          id, title, description, created_at,
+          creator:users!forms_creator_id_fkey(name)
+        ),
+        form_responses(
+          student:users!form_responses_student_id_fkey(id, name, nickname)
+        ),
+        time_teacher:users!reports_time_teacher_id_fkey(id, name, nickname),
+        teacher:users!reports_teacher_id_fkey(id, name, nickname)
+      `
+    );
+
+    if (conditions.formId) {
+      query = query.eq("form_id", conditions.formId);
+    }
+
+    if (conditions.studentName) {
+      query = query.ilike("student_name", `%${conditions.studentName}%`);
+    }
+
+    if (conditions.className) {
+      query = query.ilike("class_name", `%${conditions.className}%`);
+    }
+
+    if (conditions.stage && conditions.stage.length > 0) {
+      query = query.in("stage", conditions.stage);
+    }
+
+    if (conditions.timeTeacherId) {
+      query = query.eq("time_teacher_id", conditions.timeTeacherId);
+    }
+
+    if (conditions.teacherId) {
+      query = query.eq("teacher_id", conditions.teacherId);
+    }
+
+    if (conditions.createdAfter) {
+      query = query.gte("created_at", conditions.createdAfter);
+    }
+
+    if (conditions.createdBefore) {
+      query = query.lte("created_at", conditions.createdBefore);
+    }
+
+    const { data: reports, error } = await query.order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    const reportsWithDetails: ReportWithDetails[] = (reports || []).map((report: any) => ({
+      id: report.id,
+      form_id: report.form_id,
+      form_response_id: report.form_response_id,
+      stage: report.stage,
+      student_name: report.student_name,
+      class_name: report.class_name,
+      teacher_id: report.teacher_id,
+      time_teacher_id: report.time_teacher_id,
+      supervision_id: report.supervision_id,
+      teacher_comment: report.teacher_comment,
+      teacher_completed_at: report.teacher_completed_at,
+      time_teacher_comment: report.time_teacher_comment,
+      time_teacher_completed_at: report.time_teacher_completed_at,
+      rejected_at: report.rejected_at,
+      rejected_by: report.rejected_by,
+      rejection_reason: report.rejection_reason,
+      draft_status: report.draft_status,
+      created_at: report.created_at,
+      updated_at: report.updated_at,
+      form: report.forms
+        ? {
+            id: report.forms.id,
+            title: report.forms.title,
+            description: report.forms.description,
+            creator_name: report.forms.creator?.name || "Unknown",
+            created_at: report.forms.created_at,
+          }
+        : null,
+      student: report.form_responses?.student
+        ? {
+            id: report.form_responses.student.id,
+            name: report.form_responses.student.name,
+            nickname: report.form_responses.student.nickname,
+            class_name: report.class_name || undefined,
+          }
+        : null,
+      timeTeacher: report.time_teacher
+        ? {
+            id: report.time_teacher.id,
+            name: report.time_teacher.name,
+            nickname: report.time_teacher.nickname,
+          }
+        : undefined,
+      teacher: report.teacher
+        ? {
+            id: report.teacher.id,
+            name: report.teacher.name,
+            nickname: report.teacher.nickname,
+          }
+        : undefined,
+      formResponse: null, // 상세 조회시에만 로드
+      progressInfo: calculateProgressInfo(report),
+    }));
+
+    return { success: true, data: reportsWithDetails };
+  } catch (error) {
+    console.error("Error searching reports:", error);
+    return { success: false, error: "보고서 검색 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 그룹별 보고서 조회
+ */
+export async function getReportsByGroup(
+  groupId: string
+): Promise<ApiResponse<ReportWithDetails[]>> {
+  try {
     const { data: reports, error } = await supabaseAdmin
       .from("reports")
       .select(
         `
         *,
-        forms!reports_form_id_fkey (
-          id, title, description, created_at,
-          creator:users!forms_creator_id_fkey (name, nickname)
+        forms!inner(
+          id, title, description, created_at, group_id,
+          creator:users!forms_creator_id_fkey(name)
         ),
-        form_responses!reports_form_response_id_fkey (
-          id, status, submitted_at,
-          student:users!form_responses_student_id_fkey (id, name, nickname)
+        form_responses(
+          student:users!form_responses_student_id_fkey(id, name, nickname)
         ),
-        time_teacher:users!reports_time_teacher_id_fkey (id, name, nickname),
-        teacher:users!reports_teacher_id_fkey (id, name, nickname)
+        time_teacher:users!reports_time_teacher_id_fkey(id, name, nickname),
+        teacher:users!reports_teacher_id_fkey(id, name, nickname)
       `
       )
       .eq("forms.group_id", groupId)
@@ -313,49 +749,34 @@ export async function getAllReportsInGroup(
 
     if (error) throw error;
 
-    // 상세 정보 포함하여 변환
     const reportsWithDetails: ReportWithDetails[] = [];
 
-    for (const report of reports) {
+    for (const report of reports || []) {
       let formResponse: FormResponseData | null = null;
-      if (report.form_responses && report.form_response_id) {
-        // 질문 응답 데이터 조회
-        const { data: questionResponses } = await supabaseAdmin
-          .from("form_question_responses")
-          .select(
-            `
-            *,
-            form_questions!form_question_responses_question_id_fkey (
-              id, question_text, question_type, is_required, order_index
-            )
-          `
-          )
-          .eq("form_response_id", report.form_response_id);
-
-        const responses: QuestionResponseData[] = (questionResponses || []).map((qr) => ({
-          questionId: qr.question_id || "",
-          questionType: qr.form_questions?.question_type || "",
-          questionText: qr.form_questions?.question_text || "",
-          isRequired: qr.form_questions?.is_required || false,
-          orderIndex: qr.form_questions?.order_index || 0,
-          response: {
-            textResponse: qr.text_response || undefined,
-            numberResponse: qr.number_response || undefined,
-            ratingResponse: qr.rating_response || undefined,
-            examResponse: qr.exam_response || undefined,
-          },
-        }));
-
-        formResponse = {
-          id: report.form_responses.id,
-          status: report.form_responses.status,
-          submitted_at: report.form_responses.submitted_at,
-          responses,
-        };
+      if (report.form_response_id) {
+        formResponse = await collectFormResponseData(report.form_response_id);
       }
 
       reportsWithDetails.push({
-        ...report,
+        id: report.id,
+        form_id: report.form_id,
+        form_response_id: report.form_response_id,
+        stage: report.stage,
+        student_name: report.student_name,
+        class_name: report.class_name,
+        teacher_id: report.teacher_id,
+        time_teacher_id: report.time_teacher_id,
+        supervision_id: report.supervision_id,
+        teacher_comment: report.teacher_comment,
+        teacher_completed_at: report.teacher_completed_at,
+        time_teacher_comment: report.time_teacher_comment,
+        time_teacher_completed_at: report.time_teacher_completed_at,
+        rejected_at: report.rejected_at,
+        rejected_by: report.rejected_by,
+        rejection_reason: report.rejection_reason,
+        draft_status: report.draft_status,
+        created_at: report.created_at,
+        updated_at: report.updated_at,
         form: report.forms
           ? {
               id: report.forms.id,
@@ -400,454 +821,54 @@ export async function getAllReportsInGroup(
 }
 
 /**
- * 보고서 필터링 조회
+ * 보고서 통계 조회
  */
-export async function searchReports(
-  conditions: ReportSearchConditions
-): Promise<ApiResponse<ReportWithDetails[]>> {
+export async function getReportSummary(groupId: string): Promise<ApiResponse<ReportSummary>> {
   try {
-    let query = supabaseAdmin.from("reports").select(`
-        *,
-        forms!reports_form_id_fkey (
-          id, title, description, created_at, group_id,
-          creator:users!forms_creator_id_fkey (name, nickname)
-        ),
-        form_responses!reports_form_response_id_fkey (
-          id, status, submitted_at,
-          student:users!form_responses_student_id_fkey (id, name, nickname)
-        ),
-        time_teacher:users!reports_time_teacher_id_fkey (id, name, nickname),
-        teacher:users!reports_teacher_id_fkey (id, name, nickname)
-      `);
-
-    // 그룹 ID로 필터링 (필수)
-    query = query.eq("forms.group_id", conditions.groupId);
-
-    // 폼 ID 필터링
-    if (conditions.formId) {
-      query = query.eq("form_id", conditions.formId);
-    }
-
-    // 학생 이름 필터링
-    if (conditions.studentName) {
-      query = query.ilike("student_name", `%${conditions.studentName}%`);
-    }
-
-    // 반 이름 필터링
-    if (conditions.className) {
-      query = query.ilike("class_name", `%${conditions.className}%`);
-    }
-
-    // 단계 필터링
-    if (conditions.stage && conditions.stage.length > 0) {
-      query = query.in("stage", conditions.stage);
-    }
-
-    // 시간강사 필터링
-    if (conditions.timeTeacherId) {
-      query = query.eq("time_teacher_id", conditions.timeTeacherId);
-    }
-
-    // 선생님 필터링
-    if (conditions.teacherId) {
-      query = query.eq("teacher_id", conditions.teacherId);
-    }
-
-    // 생성일 필터링
-    if (conditions.createdAfter) {
-      query = query.gte("created_at", conditions.createdAfter);
-    }
-
-    if (conditions.createdBefore) {
-      query = query.lte("created_at", conditions.createdBefore);
-    }
-
-    const { data: reports, error } = await query.order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    // 상태 필터링 (클라이언트 사이드)
-    let filteredReports = reports;
-    if (conditions.status && conditions.status.length > 0) {
-      filteredReports = reports.filter((report) => {
-        const progressInfo = calculateProgressInfo(report);
-        return conditions.status!.includes(progressInfo.status);
-      });
-    }
-
-    // 상세 정보 변환은 getAllReportsInGroup과 동일한 로직 사용
-    const reportsWithDetails: ReportWithDetails[] = filteredReports.map((report) => ({
-      ...report,
-      form: report.forms
-        ? {
-            id: report.forms.id,
-            title: report.forms.title,
-            description: report.forms.description,
-            creator_name: report.forms.creator?.name || "Unknown",
-            created_at: report.forms.created_at,
-          }
-        : null,
-      student: report.form_responses?.student
-        ? {
-            id: report.form_responses.student.id,
-            name: report.form_responses.student.name,
-            nickname: report.form_responses.student.nickname,
-            class_name: report.class_name || undefined,
-          }
-        : null,
-      timeTeacher: report.time_teacher
-        ? {
-            id: report.time_teacher.id,
-            name: report.time_teacher.name,
-            nickname: report.time_teacher.nickname,
-          }
-        : undefined,
-      teacher: report.teacher
-        ? {
-            id: report.teacher.id,
-            name: report.teacher.name,
-            nickname: report.teacher.nickname,
-          }
-        : undefined,
-      formResponse: null, // 상세 조회시에만 로드
-      progressInfo: calculateProgressInfo(report),
-    }));
-
-    return { success: true, data: reportsWithDetails };
-  } catch (error) {
-    console.error("Error searching reports:", error);
-    return { success: false, error: "보고서 검색 중 오류가 발생했습니다." };
-  }
-}
-
-/**
- * 특정 보고서 상세 조회
- */
-export async function getReportDetails(reportId: string): Promise<ApiResponse<ReportWithDetails>> {
-  try {
-    const { data: report, error } = await supabaseAdmin
+    const { data: reports, error } = await supabaseAdmin
       .from("reports")
       .select(
         `
-        *,
-        forms!reports_form_id_fkey (
-          id, title, description, created_at,
-          creator:users!forms_creator_id_fkey (name, nickname)
-        ),
-        form_responses!reports_form_response_id_fkey (
-          id, status, submitted_at,
-          student:users!form_responses_student_id_fkey (id, name, nickname)
-        ),
-        time_teacher:users!reports_time_teacher_id_fkey (id, name, nickname),
-        teacher:users!reports_teacher_id_fkey (id, name, nickname)
+        stage, rejected_at, created_at,
+        forms!inner(group_id)
       `
       )
-      .eq("id", reportId)
-      .single();
+      .eq("forms.group_id", groupId);
 
     if (error) throw error;
 
-    // 질문 응답 데이터 조회
-    let formResponse: FormResponseData | null = null;
-    if (report.form_response_id) {
-      const { data: questionResponses } = await supabaseAdmin
-        .from("form_question_responses")
-        .select(
-          `
-          *,
-          form_questions!form_question_responses_question_id_fkey (
-            id, question_text, question_type, is_required, order_index
-          )
-        `
-        )
-        .eq("form_response_id", report.form_response_id);
+    const totalReports = reports?.length || 0;
+    const completedReports = reports?.filter((r) => r.stage === 3).length || 0;
+    const rejectedReports = reports?.filter((r) => r.rejected_at).length || 0;
+    const inProgressReports = totalReports - completedReports - rejectedReports;
 
-      const responses: QuestionResponseData[] = (questionResponses || []).map((qr) => ({
-        questionId: qr.question_id || "",
-        questionType: qr.form_questions?.question_type || "",
-        questionText: qr.form_questions?.question_text || "",
-        isRequired: qr.form_questions?.is_required || false,
-        orderIndex: qr.form_questions?.order_index || 0,
-        response: {
-          textResponse: qr.text_response || undefined,
-          numberResponse: qr.number_response || undefined,
-          ratingResponse: qr.rating_response || undefined,
-          examResponse: qr.exam_response || undefined,
-        },
-      }));
-
-      formResponse = {
-        id: report.form_responses?.id || "",
-        status: report.form_responses?.status || "",
-        submitted_at: report.form_responses?.submitted_at || null,
-        responses: responses.sort((a, b) => a.orderIndex - b.orderIndex),
-      };
-    }
-
-    const reportWithDetails: ReportWithDetails = {
-      ...report,
-      form: report.forms
-        ? {
-            id: report.forms.id,
-            title: report.forms.title,
-            description: report.forms.description,
-            creator_name: report.forms.creator?.name || "Unknown",
-            created_at: report.forms.created_at,
-          }
-        : null,
-      student: report.form_responses?.student
-        ? {
-            id: report.form_responses.student.id,
-            name: report.form_responses.student.name,
-            nickname: report.form_responses.student.nickname,
-            class_name: report.class_name || undefined,
-          }
-        : null,
-      timeTeacher: report.time_teacher
-        ? {
-            id: report.time_teacher.id,
-            name: report.time_teacher.name,
-            nickname: report.time_teacher.nickname,
-          }
-        : undefined,
-      teacher: report.teacher
-        ? {
-            id: report.teacher.id,
-            name: report.teacher.name,
-            nickname: report.teacher.nickname,
-          }
-        : undefined,
-      formResponse,
-      progressInfo: calculateProgressInfo(report),
+    const stageDistribution = {
+      stage0: reports?.filter((r) => r.stage === 0).length || 0,
+      stage1: reports?.filter((r) => r.stage === 1).length || 0,
+      stage2: reports?.filter((r) => r.stage === 2).length || 0,
+      stage3: completedReports,
     };
 
-    return { success: true, data: reportWithDetails };
+    // 최근 활동 데이터 (간단한 예시)
+    const recentActivity = [
+      { date: "2024-01-01", count: 5, type: "submitted" as const },
+      { date: "2024-01-02", count: 3, type: "commented" as const },
+      { date: "2024-01-03", count: 2, type: "completed" as const },
+    ];
+
+    const summary: ReportSummary = {
+      totalReports,
+      completedReports,
+      inProgressReports,
+      rejectedReports,
+      stageDistribution,
+      recentActivity,
+    };
+
+    return { success: true, data: summary };
   } catch (error) {
-    console.error("Error fetching report details:", error);
-    return { success: false, error: "보고서 상세 조회 중 오류가 발생했습니다." };
-  }
-}
-
-// ===== 보고서 단계 관리 함수들 =====
-
-/**
- * 보고서 단계 올림 (코멘트 추가)
- */
-export async function advanceReportStage(
-  request: AddCommentRequest
-): Promise<ApiResponse<boolean>> {
-  try {
-    // 현재 보고서 상태 확인
-    const { data: report, error: reportError } = await supabaseAdmin
-      .from("reports")
-      .select("*")
-      .eq("id", request.reportId)
-      .single();
-
-    if (reportError) throw reportError;
-
-    const currentStage = report.stage || 0;
-    let nextStage = currentStage;
-    const now = new Date().toISOString();
-
-    // 코멘트 타입에 따른 단계 진행
-    if (request.commentType === "time_teacher") {
-      if (currentStage === 1) {
-        nextStage = 2;
-        // 시간강사 코멘트 추가
-        const { error: updateError } = await supabaseAdmin
-          .from("reports")
-          .update({
-            time_teacher_comment: request.comment,
-            time_teacher_completed_at: now,
-            stage: nextStage,
-            draft_status: "waiting_teacher",
-            updated_at: now,
-          })
-          .eq("id", request.reportId);
-
-        if (updateError) throw updateError;
-
-        // 담당 선생님에게 알림
-        if (report.teacher_id) {
-          await createReportNotification(
-            report.teacher_id,
-            "report_ready_for_review",
-            "보고서 검토 요청",
-            `시간강사가 검토를 완료했습니다. 최종 검토를 진행해주세요.`,
-            request.reportId
-          );
-        }
-      } else {
-        return { success: false, error: "현재 단계에서는 시간강사 코멘트를 추가할 수 없습니다." };
-      }
-    } else if (request.commentType === "teacher") {
-      if (currentStage === 2) {
-        nextStage = 3;
-        // 선생님 코멘트 추가 (최종 완료)
-        const { error: updateError } = await supabaseAdmin
-          .from("reports")
-          .update({
-            teacher_comment: request.comment,
-            teacher_completed_at: now,
-            stage: nextStage,
-            draft_status: "completed",
-            updated_at: now,
-          })
-          .eq("id", request.reportId);
-
-        if (updateError) throw updateError;
-
-        // 학생에게 완료 알림
-        if (report.form_response_id) {
-          const { data: formResponse } = await supabaseAdmin
-            .from("form_responses")
-            .select("student_id")
-            .eq("id", report.form_response_id)
-            .single();
-
-          if (formResponse?.student_id) {
-            await createReportNotification(
-              formResponse.student_id,
-              "report_completed",
-              "보고서 완료",
-              `제출하신 폼에 대한 최종 보고서가 완료되었습니다.`,
-              request.reportId
-            );
-          }
-        }
-      } else {
-        return { success: false, error: "현재 단계에서는 선생님 코멘트를 추가할 수 없습니다." };
-      }
-    }
-
-    return { success: true, data: true };
-  } catch (error) {
-    console.error("Error advancing report stage:", error);
-    return { success: false, error: "보고서 단계 진행 중 오류가 발생했습니다." };
-  }
-}
-
-/**
- * 보고서 반려
- */
-export async function rejectReport(request: RejectReportRequest): Promise<ApiResponse<boolean>> {
-  try {
-    const now = new Date().toISOString();
-
-    const { error } = await supabaseAdmin
-      .from("reports")
-      .update({
-        rejected_at: now,
-        rejected_by: request.rejectedBy,
-        rejection_reason: request.rejectionReason,
-        draft_status: "rejected",
-        updated_at: now,
-      })
-      .eq("id", request.reportId);
-
-    if (error) throw error;
-
-    // 학생에게 반려 알림
-    const { data: report } = await supabaseAdmin
-      .from("reports")
-      .select("form_response_id")
-      .eq("id", request.reportId)
-      .single();
-
-    if (report?.form_response_id) {
-      const { data: formResponse } = await supabaseAdmin
-        .from("form_responses")
-        .select("student_id")
-        .eq("id", report.form_response_id)
-        .single();
-
-      if (formResponse?.student_id) {
-        await createReportNotification(
-          formResponse.student_id,
-          "report_rejected",
-          "보고서 반려",
-          `제출하신 응답이 반려되었습니다. 사유: ${request.rejectionReason}`,
-          request.reportId
-        );
-      }
-    }
-
-    return { success: true, data: true };
-  } catch (error) {
-    console.error("Error rejecting report:", error);
-    return { success: false, error: "보고서 반려 중 오류가 발생했습니다." };
-  }
-}
-
-/**
- * 보고서를 폼 상태로 리셋
- */
-export async function resetReportToForm(
-  request: ResetReportRequest
-): Promise<ApiResponse<boolean>> {
-  try {
-    const now = new Date().toISOString();
-
-    // 보고서 상태를 리셋으로 변경
-    const { error: reportError } = await supabaseAdmin
-      .from("reports")
-      .update({
-        stage: 1, // 학생 응답 단계로 되돌림
-        draft_status: "reset",
-        rejected_at: null,
-        rejected_by: null,
-        rejection_reason: request.resetReason,
-        time_teacher_comment: null,
-        time_teacher_completed_at: null,
-        teacher_comment: null,
-        teacher_completed_at: null,
-        updated_at: now,
-      })
-      .eq("id", request.reportId);
-
-    if (reportError) throw reportError;
-
-    // 해당 폼 응답을 수정 가능 상태로 변경
-    const { data: report } = await supabaseAdmin
-      .from("reports")
-      .select("form_response_id")
-      .eq("id", request.reportId)
-      .single();
-
-    if (report?.form_response_id) {
-      const { error: responseError } = await supabaseAdmin
-        .from("form_responses")
-        .update({
-          status: "pending",
-          updated_at: now,
-        })
-        .eq("id", report.form_response_id);
-
-      if (responseError) throw responseError;
-
-      // 학생에게 재작성 요청 알림
-      const { data: formResponse } = await supabaseAdmin
-        .from("form_responses")
-        .select("student_id")
-        .eq("id", report.form_response_id)
-        .single();
-
-      if (formResponse?.student_id) {
-        await createReportNotification(
-          formResponse.student_id,
-          "form_reset",
-          "폼 재작성 요청",
-          `선생님이 폼을 다시 작성하도록 요청했습니다. 사유: ${request.resetReason}`,
-          request.reportId
-        );
-      }
-    }
-
-    return { success: true, data: true };
-  } catch (error) {
-    console.error("Error resetting report:", error);
-    return { success: false, error: "보고서 리셋 중 오류가 발생했습니다." };
+    console.error("Error fetching report summary:", error);
+    return { success: false, error: "보고서 통계 조회 중 오류가 발생했습니다." };
   }
 }
 
@@ -858,7 +879,7 @@ export async function updateReportAssignment(
   request: UpdateReportAssignmentRequest
 ): Promise<ApiResponse<boolean>> {
   try {
-    const updates: Partial<ReportUpdate> = {
+    const updates: any = {
       updated_at: new Date().toISOString(),
     };
 
@@ -877,27 +898,6 @@ export async function updateReportAssignment(
 
     if (error) throw error;
 
-    // 새로 할당된 담당자들에게 알림
-    if (request.timeTeacherId) {
-      await createReportNotification(
-        request.timeTeacherId,
-        "report_assigned",
-        "보고서 할당",
-        "새로운 보고서가 검토를 위해 할당되었습니다.",
-        request.reportId
-      );
-    }
-
-    if (request.teacherId) {
-      await createReportNotification(
-        request.teacherId,
-        "report_assigned",
-        "보고서 할당",
-        "새로운 보고서가 최종 검토를 위해 할당되었습니다.",
-        request.reportId
-      );
-    }
-
     return { success: true, data: true };
   } catch (error) {
     console.error("Error updating report assignment:", error);
@@ -906,13 +906,13 @@ export async function updateReportAssignment(
 }
 
 /**
- * 보고서 일괄 담당자 업데이트
+ * 보고서 일괄 업데이트
  */
-export async function bulkUpdateReportAssignments(
+export async function bulkUpdateReports(
   request: BulkUpdateReportsRequest
-): Promise<ApiResponse<number>> {
+): Promise<ApiResponse<boolean>> {
   try {
-    const updates: Partial<ReportUpdate> = {
+    const updates: any = {
       updated_at: new Date().toISOString(),
     };
 
@@ -924,329 +924,16 @@ export async function bulkUpdateReportAssignments(
       updates.teacher_id = request.teacherId;
     }
 
-    const { error, count } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("reports")
       .update(updates)
       .in("id", request.reportIds);
 
     if (error) throw error;
 
-    // 할당된 담당자들에게 일괄 알림
-    const notificationPromises: Promise<void>[] = [];
-
-    if (request.timeTeacherId) {
-      notificationPromises.push(
-        createReportNotification(
-          request.timeTeacherId,
-          "reports_bulk_assigned",
-          "보고서 일괄 할당",
-          `${request.reportIds.length}개의 보고서가 검토를 위해 할당되었습니다.`,
-          request.reportIds[0] // 첫 번째 보고서 ID를 대표로 사용
-        )
-      );
-    }
-
-    if (request.teacherId) {
-      notificationPromises.push(
-        createReportNotification(
-          request.teacherId,
-          "reports_bulk_assigned",
-          "보고서 일괄 할당",
-          `${request.reportIds.length}개의 보고서가 최종 검토를 위해 할당되었습니다.`,
-          request.reportIds[0]
-        )
-      );
-    }
-
-    if (notificationPromises.length > 0) {
-      await Promise.all(notificationPromises);
-    }
-
-    return { success: true, data: count || 0 };
+    return { success: true, data: true };
   } catch (error) {
-    console.error("Error bulk updating report assignments:", error);
-    return { success: false, error: "보고서 일괄 담당자 업데이트 중 오류가 발생했습니다." };
-  }
-}
-
-// ===== 최종 보고서 조회 함수들 =====
-
-/**
- * 최종 보고서 조회 (stage 3인 보고서들)
- */
-export async function getFinalReports(groupId: string): Promise<ApiResponse<FinalReportData[]>> {
-  try {
-    const { data: reports, error } = await supabaseAdmin
-      .from("reports")
-      .select(
-        `
-        *,
-        forms!reports_form_id_fkey (id, title, group_id),
-        form_responses!reports_form_response_id_fkey (
-          id, status, submitted_at,
-          student:users!form_responses_student_id_fkey (id, name, nickname)
-        )
-      `
-      )
-      .eq("stage", 3)
-      .eq("forms.group_id", groupId)
-      .order("teacher_completed_at", { ascending: false });
-
-    if (error) throw error;
-
-    const finalReports: FinalReportData[] = [];
-
-    for (const report of reports) {
-      if (!report.form_responses || !report.forms) continue;
-
-      // 질문 응답 데이터 조회
-      const { data: questionResponses } = await supabaseAdmin
-        .from("form_question_responses")
-        .select(
-          `
-          *,
-          form_questions!form_question_responses_question_id_fkey (
-            id, question_text, question_type, is_required, order_index
-          )
-        `
-        )
-        .eq("form_response_id", report.form_response_id || "");
-
-      const responses: QuestionResponseData[] = (questionResponses || []).map((qr) => ({
-        questionId: qr.question_id || "",
-        questionType: qr.form_questions?.question_type || "",
-        questionText: qr.form_questions?.question_text || "",
-        isRequired: qr.form_questions?.is_required || false,
-        orderIndex: qr.form_questions?.order_index || 0,
-        response: {
-          textResponse: qr.text_response || undefined,
-          numberResponse: qr.number_response || undefined,
-          ratingResponse: qr.rating_response || undefined,
-          examResponse: qr.exam_response || undefined,
-        },
-      }));
-
-      finalReports.push({
-        reportId: report.id,
-        formTitle: report.forms.title,
-        studentName: report.form_responses.student?.name || "Unknown",
-        className: report.class_name || undefined,
-        submittedAt: report.form_responses.submitted_at || "",
-        studentResponses: responses.sort((a, b) => a.orderIndex - b.orderIndex),
-        timeTeacherComment: report.time_teacher_comment || undefined,
-        timeTeacherCompletedAt: report.time_teacher_completed_at || undefined,
-        teacherComment: report.teacher_comment || undefined,
-        teacherCompletedAt: report.teacher_completed_at || undefined,
-        stage: report.stage || 0,
-        finalizedAt: report.teacher_completed_at || undefined,
-      });
-    }
-
-    return { success: true, data: finalReports };
-  } catch (error) {
-    console.error("Error fetching final reports:", error);
-    return { success: false, error: "최종 보고서 조회 중 오류가 발생했습니다." };
-  }
-}
-
-/**
- * 보고서 요약 통계 조회
- */
-export async function getReportSummary(groupId: string): Promise<ApiResponse<ReportSummary>> {
-  try {
-    // 그룹의 모든 보고서 조회
-    const { data: reports, error } = await supabaseAdmin
-      .from("reports")
-      .select(
-        `
-        stage, draft_status, created_at, teacher_completed_at,
-        forms!reports_form_id_fkey (group_id)
-      `
-      )
-      .eq("forms.group_id", groupId);
-
-    if (error) throw error;
-
-    const totalReports = reports.length;
-    let completedReports = 0;
-    let inProgressReports = 0;
-    let rejectedReports = 0;
-
-    const stageDistribution = {
-      stage0: 0,
-      stage1: 0,
-      stage2: 0,
-      stage3: 0,
-    };
-
-    const completionTimes: number[] = [];
-    const activityMap: {
-      [date: string]: { submitted: number; commented: number; completed: number };
-    } = {};
-
-    reports.forEach((report) => {
-      const stage = report.stage || 0;
-      const status = report.draft_status;
-
-      // 단계별 분포
-      switch (stage) {
-        case 0:
-          stageDistribution.stage0++;
-          break;
-        case 1:
-          stageDistribution.stage1++;
-          break;
-        case 2:
-          stageDistribution.stage2++;
-          break;
-        case 3:
-          stageDistribution.stage3++;
-          break;
-      }
-
-      // 상태별 분류
-      if (stage === 3) {
-        completedReports++;
-      } else if (status === "rejected") {
-        rejectedReports++;
-      } else {
-        inProgressReports++;
-      }
-
-      // 완료 시간 계산
-      if (report.created_at && report.teacher_completed_at) {
-        const startTime = new Date(report.created_at).getTime();
-        const endTime = new Date(report.teacher_completed_at).getTime();
-        const diffMinutes = (endTime - startTime) / (1000 * 60);
-        completionTimes.push(diffMinutes);
-      }
-
-      // 활동 통계
-      if (report.created_at) {
-        const date = report.created_at.split("T")[0];
-        if (!activityMap[date]) {
-          activityMap[date] = { submitted: 0, commented: 0, completed: 0 };
-        }
-        activityMap[date].submitted++;
-      }
-
-      if (report.teacher_completed_at) {
-        const date = report.teacher_completed_at.split("T")[0];
-        if (!activityMap[date]) {
-          activityMap[date] = { submitted: 0, commented: 0, completed: 0 };
-        }
-        activityMap[date].completed++;
-      }
-    });
-
-    const averageCompletionTime =
-      completionTimes.length > 0
-        ? completionTimes.reduce((sum, time) => sum + time, 0) / completionTimes.length
-        : undefined;
-
-    const recentActivity = Object.entries(activityMap)
-      .sort(([a], [b]) => b.localeCompare(a))
-      .slice(0, 30) // 최근 30일
-      .flatMap(([date, activity]) => [
-        { date, count: activity.submitted, type: "submitted" as const },
-        { date, count: activity.commented, type: "commented" as const },
-        { date, count: activity.completed, type: "completed" as const },
-      ])
-      .filter((item) => item.count > 0);
-
-    const summary: ReportSummary = {
-      totalReports,
-      completedReports,
-      inProgressReports,
-      rejectedReports,
-      stageDistribution,
-      averageCompletionTime,
-      recentActivity,
-    };
-
-    return { success: true, data: summary };
-  } catch (error) {
-    console.error("Error fetching report summary:", error);
-    return { success: false, error: "보고서 요약 통계 조회 중 오류가 발생했습니다." };
-  }
-}
-
-/**
- * 특정 폼의 모든 최종 보고서 조회
- */
-export async function getFinalReportsByForm(
-  formId: string
-): Promise<ApiResponse<FinalReportData[]>> {
-  try {
-    const { data: reports, error } = await supabaseAdmin
-      .from("reports")
-      .select(
-        `
-        *,
-        forms!reports_form_id_fkey (id, title),
-        form_responses!reports_form_response_id_fkey (
-          id, status, submitted_at,
-          student:users!form_responses_student_id_fkey (id, name, nickname)
-        )
-      `
-      )
-      .eq("form_id", formId)
-      .eq("stage", 3)
-      .order("teacher_completed_at", { ascending: false });
-
-    if (error) throw error;
-
-    const finalReports: FinalReportData[] = [];
-
-    for (const report of reports) {
-      if (!report.form_responses || !report.forms) continue;
-
-      // 질문 응답 데이터 조회
-      const { data: questionResponses } = await supabaseAdmin
-        .from("form_question_responses")
-        .select(
-          `
-          *,
-          form_questions!form_question_responses_question_id_fkey (
-            id, question_text, question_type, is_required, order_index
-          )
-        `
-        )
-        .eq("form_response_id", report.form_response_id || "");
-
-      const responses: QuestionResponseData[] = (questionResponses || []).map((qr) => ({
-        questionId: qr.question_id || "",
-        questionType: qr.form_questions?.question_type || "",
-        questionText: qr.form_questions?.question_text || "",
-        isRequired: qr.form_questions?.is_required || false,
-        orderIndex: qr.form_questions?.order_index || 0,
-        response: {
-          textResponse: qr.text_response || undefined,
-          numberResponse: qr.number_response || undefined,
-          ratingResponse: qr.rating_response || undefined,
-          examResponse: qr.exam_response || undefined,
-        },
-      }));
-
-      finalReports.push({
-        reportId: report.id,
-        formTitle: report.forms.title,
-        studentName: report.form_responses.student?.name || "Unknown",
-        className: report.class_name || undefined,
-        submittedAt: report.form_responses.submitted_at || "",
-        studentResponses: responses.sort((a, b) => a.orderIndex - b.orderIndex),
-        timeTeacherComment: report.time_teacher_comment || undefined,
-        timeTeacherCompletedAt: report.time_teacher_completed_at || undefined,
-        teacherComment: report.teacher_comment || undefined,
-        teacherCompletedAt: report.teacher_completed_at || undefined,
-        stage: report.stage || 0,
-        finalizedAt: report.teacher_completed_at || undefined,
-      });
-    }
-
-    return { success: true, data: finalReports };
-  } catch (error) {
-    console.error("Error fetching final reports by form:", error);
-    return { success: false, error: "폼별 최종 보고서 조회 중 오류가 발생했습니다." };
+    console.error("Error bulk updating reports:", error);
+    return { success: false, error: "보고서 일괄 업데이트 중 오류가 발생했습니다." };
   }
 }

@@ -480,13 +480,11 @@ export default function FinalReportsSummaryPage() {
       render: (record: FormOverviewSummary) => (
         <div>
           {record.commonStrengths.slice(0, 2).map((strength, idx) => (
-            <Tag key={idx} color="green" size="small" className="mb-1">
+            <Tag key={idx} color="green" className="mb-1">
               {strength}
             </Tag>
           ))}
-          {record.commonStrengths.length > 2 && (
-            <Tag size="small">+{record.commonStrengths.length - 2}</Tag>
-          )}
+          {record.commonStrengths.length > 2 && <Tag>+{record.commonStrengths.length - 2}</Tag>}
         </div>
       ),
     },
@@ -497,13 +495,11 @@ export default function FinalReportsSummaryPage() {
       render: (record: FormOverviewSummary) => (
         <div>
           {record.commonWeaknesses.slice(0, 2).map((weakness, idx) => (
-            <Tag key={idx} color="orange" size="small" className="mb-1">
+            <Tag key={idx} color="orange" className="mb-1">
               {weakness}
             </Tag>
           ))}
-          {record.commonWeaknesses.length > 2 && (
-            <Tag size="small">+{record.commonWeaknesses.length - 2}</Tag>
-          )}
+          {record.commonWeaknesses.length > 2 && <Tag>+{record.commonWeaknesses.length - 2}</Tag>}
         </div>
       ),
     },
@@ -665,7 +661,7 @@ export default function FinalReportsSummaryPage() {
                       }}
                       rowSelection={{
                         selectedRowKeys,
-                        onChange: setSelectedRowKeys,
+                        onChange: (keys) => setSelectedRowKeys(keys.map(String)),
                         getCheckboxProps: (record) => ({
                           disabled: record.hasSummary, // 이미 요약된 것은 선택 불가
                         }),
@@ -766,9 +762,7 @@ export default function FinalReportsSummaryPage() {
                   <ul className="space-y-1">
                     {selectedSummary.insights.strengths.map((strength, idx) => (
                       <li key={idx} className="flex items-center space-x-2">
-                        <Tag color="green" size="small">
-                          ✓
-                        </Tag>
+                        <Tag color="green">✓</Tag>
                         <span className="text-sm">{strength}</span>
                       </li>
                     ))}
@@ -783,9 +777,7 @@ export default function FinalReportsSummaryPage() {
                   <ul className="space-y-1">
                     {selectedSummary.insights.weaknesses.map((weakness, idx) => (
                       <li key={idx} className="flex items-center space-x-2">
-                        <Tag color="orange" size="small">
-                          !
-                        </Tag>
+                        <Tag color="orange">!</Tag>
                         <span className="text-sm">{weakness}</span>
                       </li>
                     ))}
@@ -800,9 +792,7 @@ export default function FinalReportsSummaryPage() {
                   <ul className="space-y-1">
                     {selectedSummary.insights.recommendations.map((rec, idx) => (
                       <li key={idx} className="flex items-center space-x-2">
-                        <Tag color="blue" size="small">
-                          →
-                        </Tag>
+                        <Tag color="blue">→</Tag>
                         <span className="text-sm">{rec}</span>
                       </li>
                     ))}

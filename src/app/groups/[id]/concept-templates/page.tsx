@@ -291,7 +291,6 @@ export default function ConceptTemplatesPage() {
         // 수정
         const result = await updateConceptTemplate(editingTemplate.id, {
           name: values.name,
-          description: values.description,
           conceptCount: values.conceptCount,
           status: values.status,
         });
@@ -303,7 +302,6 @@ export default function ConceptTemplatesPage() {
         // 생성
         const result = await createConceptTemplate({
           name: values.name,
-          description: values.description,
           groupId,
           creatorId: user.id,
           conceptCount: values.conceptCount,
@@ -668,7 +666,7 @@ export default function ConceptTemplatesPage() {
             }}
             rowSelection={{
               selectedRowKeys,
-              onChange: setSelectedRowKeys,
+              onChange: (selectedRowKeys) => setSelectedRowKeys(selectedRowKeys as string[]),
             }}
             locale={{
               emptyText: (
