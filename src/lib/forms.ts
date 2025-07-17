@@ -1623,36 +1623,58 @@ export async function updateConceptTemplate(
 }
 
 /**
- * 개념 템플릿 복제
+ * 개념 템플릿 복제 (기존 함수 수정)
  */
-export async function duplicateConceptTemplate(
-  templateId: string,
-  newName?: string
-): Promise<ApiResponse<string>> {
+export async function duplicateConceptTemplate(request: {
+  templateId: string;
+  userId: string;
+  newName?: string;
+}): Promise<ApiResponse<string>> {
   try {
     // 원본 템플릿 조회
-    const { data: original, error: fetchError } = await supabaseAdmin
+    const { data: original, error: getError } = await supabaseAdmin
       .from("exam_concept_templates")
-      .select("*")
-      .eq("id", templateId)
+      .select(
+        `
+        *,
+        exam_concept_template_items(*)
+      `
+      )
+      .eq("id", request.templateId)
       .single();
 
-    if (fetchError) throw fetchError;
+    if (getError) throw getError;
 
     // 새 템플릿 생성
     const { data: newTemplate, error: createError } = await supabaseAdmin
       .from("exam_concept_templates")
       .insert({
-        name: newName || `${original.name} [복사본]`,
+        name: request.newName || `${original.name} [복사본]`,
         group_id: original.group_id,
         concept_count: original.concept_count,
-        status: "draft", // 복제본은 항상 draft로
-        creator_id: original.creator_id,
+        status: "draft", // 복제본은 항상 임시저장으로
+        creator_id: request.userId,
       })
       .select()
       .single();
 
     if (createError) throw createError;
+
+    // 개념 아이템들도 복제
+    if (original.exam_concept_template_items && original.exam_concept_template_items.length > 0) {
+      const itemsToInsert = original.exam_concept_template_items.map((item) => ({
+        template_id: newTemplate.id,
+        concept_text: item.concept_text,
+        concept_description: item.concept_description,
+        order_index: item.order_index,
+      }));
+
+      const { error: itemsError } = await supabaseAdmin
+        .from("exam_concept_template_items")
+        .insert(itemsToInsert);
+
+      if (itemsError) throw itemsError;
+    }
 
     return { success: true, data: newTemplate.id };
   } catch (error) {
@@ -1745,5 +1767,124 @@ export async function getFormStatistics(formId: string): Promise<ApiResponse<For
   } catch (error) {
     console.error("Error fetching form statistics:", error);
     return { success: false, error: "폼 통계 조회 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 모든 개념 템플릿 조회 (기존 exam_concept_templates 사용)
+ */
+export async function getAllConceptTemplates(
+  groupId: string
+): Promise<ApiResponse<ExamConceptTemplate[]>> {
+  try {
+    const { data: templates, error } = await supabaseAdmin
+      .from("exam_concept_templates")
+      .select(
+        `
+        *,
+        exam_concept_template_items(*)
+      `
+      )
+      .eq("group_id", groupId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    return { success: true, data: templates || [] };
+  } catch (error) {
+    console.error("Error getting concept templates:", error);
+    return { success: false, error: "개념 템플릿 조회 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 개념 템플릿 검색
+ */
+export async function searchConceptTemplates(conditions: {
+  groupId: string;
+  name?: string;
+  status?: string[];
+  creatorId?: string;
+}): Promise<ApiResponse<ExamConceptTemplate[]>> {
+  try {
+    let query = supabaseAdmin
+      .from("exam_concept_templates")
+      .select(
+        `
+        *,
+        exam_concept_template_items(*)
+      `
+      )
+      .eq("group_id", conditions.groupId);
+
+    if (conditions.name) {
+      query = query.ilike("name", `%${conditions.name}%`);
+    }
+
+    if (conditions.status && conditions.status.length > 0) {
+      query = query.in("status", conditions.status);
+    }
+
+    if (conditions.creatorId) {
+      query = query.eq("creator_id", conditions.creatorId);
+    }
+
+    const { data: templates, error } = await query.order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    return { success: true, data: templates || [] };
+  } catch (error) {
+    console.error("Error searching concept templates:", error);
+    return { success: false, error: "개념 템플릿 검색 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 개념 템플릿 삭제
+ */
+export async function deleteConceptTemplate(
+  templateId: string,
+  userId: string
+): Promise<ApiResponse<boolean>> {
+  try {
+    // 권한 확인
+    const { data: template, error: checkError } = await supabaseAdmin
+      .from("exam_concept_templates")
+      .select("creator_id")
+      .eq("id", templateId)
+      .single();
+
+    if (checkError) throw checkError;
+
+    if (template.creator_id !== userId) {
+      return { success: false, error: "템플릿을 삭제할 권한이 없습니다." };
+    }
+
+    // 사용중인지 확인
+    const { data: usageCheck, error: usageError } = await supabaseAdmin
+      .from("exam_questions")
+      .select("id")
+      .eq("concept_template_id", templateId)
+      .limit(1);
+
+    if (usageError) throw usageError;
+
+    if (usageCheck && usageCheck.length > 0) {
+      return { success: false, error: "사용 중인 템플릿은 삭제할 수 없습니다." };
+    }
+
+    // 템플릿 삭제 (cascade로 template_items도 함께 삭제됨)
+    const { error } = await supabaseAdmin
+      .from("exam_concept_templates")
+      .delete()
+      .eq("id", templateId);
+
+    if (error) throw error;
+
+    return { success: true, data: true };
+  } catch (error) {
+    console.error("Error deleting concept template:", error);
+    return { success: false, error: "개념 템플릿 삭제 중 오류가 발생했습니다." };
   }
 }
