@@ -20,6 +20,8 @@ import {
   Spin,
   App,
   Badge,
+  Col,
+  Row,
 } from "antd";
 import {
   UserAddOutlined,
@@ -38,6 +40,10 @@ import {
   CloseOutlined,
   ExclamationCircleOutlined,
   LogoutOutlined,
+  FileTextOutlined,
+  FormOutlined,
+  UserOutlined,
+  BarChartOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -892,6 +898,68 @@ export default function GroupDetailPage() {
               )}
             </Empty>
           )}
+        </div>
+      ),
+    },
+    {
+      key: "overview",
+      label: (
+        <span>
+          <TeamOutlined />
+          개요
+        </span>
+      ),
+      children: (
+        <div className="space-y-6">
+          {/* 기존 개요 내용 */}
+
+          {/* 빠른 액세스 카드 추가 */}
+          <Card title="빠른 액세스" className="mb-6">
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12} md={8}>
+                <Card
+                  hoverable
+                  className="h-full cursor-pointer"
+                  onClick={() => router.push(`/groups/${groupId}/forms`)}
+                >
+                  <div className="text-center">
+                    <FormOutlined className="text-3xl text-blue-500 mb-2" />
+                    <h3 className="font-medium">폼 관리</h3>
+                    <p className="text-sm text-gray-600 mt-1">폼 생성, 전송, 응답 관리</p>
+                  </div>
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} md={8}>
+                <Card
+                  hoverable
+                  className="h-full cursor-pointer"
+                  onClick={() => router.push(`/groups/${groupId}/reports`)}
+                >
+                  <div className="text-center">
+                    <FileTextOutlined className="text-3xl text-green-500 mb-2" />
+                    <h3 className="font-medium">보고서</h3>
+                    <p className="text-sm text-gray-600 mt-1">보고서 진행 상황 및 관리</p>
+                  </div>
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} md={8}>
+                <Card
+                  hoverable
+                  className="h-full cursor-pointer"
+                  onClick={() => router.push(`/groups/${groupId}/concept-template`)}
+                >
+                  <div className="text-center">
+                    <BarChartOutlined
+                      className="text-purple-500 mb-2"
+                      style={{ fontSize: "24px" }}
+                    />
+                    <h3 className="font-medium">개념 템플릿</h3>
+                    <p className="text-sm text-gray-600 mt-1">시험 개념 템플릿 관리</p>
+                  </div>
+                </Card>
+              </Col>
+            </Row>
+          </Card>
         </div>
       ),
     },
