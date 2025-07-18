@@ -6,6 +6,12 @@ module.exports = {
     "./pages/**/*.{js,ts,jsx,tsx}",
     "./components/**/*.{js,ts,jsx,tsx}",
   ],
+  // Ant Design과의 충돌을 방지하기 위한 설정
+  corePlugins: {
+    preflight: false, // Tailwind의 기본 reset CSS 비활성화
+  },
+  // Ant Design 컴포넌트에는 Tailwind 적용 방지
+  blocklist: ["collapse"],
   theme: {
     extend: {
       colors: {
@@ -51,4 +57,4 @@ module.exports = {
     },
   },
   plugins: [],
-}
+};
