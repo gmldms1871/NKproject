@@ -329,7 +329,7 @@ export default function FormDetailPage() {
           <Space>
             <Button
               icon={<EditOutlined />}
-              onClick={() => router.push(`/groups/${groupId}/forms/create?editId=${form.id}`)}
+              onClick={() => router.push(`/groups/${groupId}/forms/create?edit=${form.id}`)}
             >
               수정하기
             </Button>
@@ -415,7 +415,7 @@ export default function FormDetailPage() {
             type="primary"
             size="large"
             icon={<EditOutlined />}
-            onClick={() => router.push(`/groups/${groupId}/forms/create?editId=${form.id}`)}
+            onClick={() => router.push(`/groups/${groupId}/forms/create?edit=${form.id}`)}
           >
             폼 수정하기
           </Button>
