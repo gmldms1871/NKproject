@@ -463,10 +463,8 @@ export async function getFormDetails(formId: string): Promise<ApiResponse<FormWi
             )
           ),
           rating_questions(*),
-          choice_questions(
-            *,
-            choice_options(*)
-          )
+          choice_questions(*),
+          choice_options(*)
         ),
         form_tag_links(
           form_tags(*)
@@ -516,15 +514,19 @@ export async function getFormDetails(formId: string): Promise<ApiResponse<FormWi
           };
         } else if (question.question_type === "rating" && question.rating_questions) {
           questionDetail.ratingDetails = question.rating_questions;
-        } else if (question.question_type === "choice" && question.choice_questions) {
-          questionDetail.choiceDetails = {
-            question_id: question.choice_questions.question_id,
-            is_multiple: question.choice_questions.is_multiple,
-            etc_option_enabled: question.choice_questions.etc_option_enabled,
-            options: Array.isArray(question.choice_questions.choice_options)
-              ? question.choice_questions.choice_options
-              : [],
-          };
+        } else if (question.question_type === "choice") {
+          // ✅ 수정된 부분: choice_questions와 choice_options를 각각 처리
+          const choiceQuestion = question.choice_questions;
+          const choiceOptions = question.choice_options || [];
+
+          if (choiceQuestion) {
+            questionDetail.choiceDetails = {
+              question_id: choiceQuestion.question_id,
+              is_multiple: choiceQuestion.is_multiple,
+              etc_option_enabled: choiceQuestion.etc_option_enabled,
+              options: choiceOptions, // ✅ 직접 사용
+            };
+          }
         } else if (question.question_type === "text") {
           // 텍스트 타입의 경우 서브타입 처리 (주관식/서술형)
           questionDetail.textDetails = {
@@ -690,6 +692,7 @@ export async function searchForms(
  */
 export async function createForm(request: CreateFormRequest): Promise<ApiResponse<string>> {
   try {
+    // createForm 함수에서
     const { data: form, error } = await supabaseAdmin
       .from("forms")
       .insert({
@@ -697,7 +700,7 @@ export async function createForm(request: CreateFormRequest): Promise<ApiRespons
         description: request.description,
         group_id: request.groupId,
         creator_id: request.creatorId,
-        status: request.isDraft ? "draft" : request.status || "draft",
+        status: request.isDraft ? "draft" : "active", // "draft", "active", "closed"만 허용
       })
       .select()
       .single();
@@ -705,13 +708,14 @@ export async function createForm(request: CreateFormRequest): Promise<ApiRespons
     if (error) throw error;
 
     // 보고서도 동시에 생성 (사용자 요구사항)
+    // 보고서 생성 시
     const { error: reportError } = await supabaseAdmin.from("reports").insert({
       form_id: form.id,
-      form_response_id: null, // 아직 응답이 없음
+      form_response_id: null,
       student_name: "",
       class_name: "",
-      stage: 0, // 초기 단계
-      status: "waiting_for_response",
+      stage: 0,
+      draft_status: "waiting_for_response", // status 대신 draft_status 사용
       time_teacher_id: null,
       teacher_id: null,
       supervision_id: null,
@@ -1439,9 +1443,10 @@ export async function createQuestion(
         if (optionsError) throw optionsError;
       }
     } else if (request.questionType === "exam" && request.examConfig) {
+      // exam_questions 테이블 삽입 시
       const { error: examError } = await supabaseAdmin.from("exam_questions").insert({
-        question_id: question.id,
-        concept_template_id: request.examConfig.conceptTemplateId,
+        question_id: question.id, // ✅ 'question' 사용
+        concept_template_id: request.examConfig.conceptTemplateId || null,
         total_questions: request.examConfig.totalQuestions || 10,
       });
 

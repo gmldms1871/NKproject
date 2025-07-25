@@ -894,13 +894,14 @@ export default function FormsPage() {
             key: "edit",
             label: "수정",
             icon: <EditOutlined />,
-            onClick: () => router.push(`/groups/${groupId}/forms/create?editId=${record.id}`),
+            disabled: record.actualStatus === "sent" || record.actualStatus === "closed",
+            onClick: () => router.push(`/groups/${groupId}/forms/create?edit=${record.id}`), // ✅ 수정 URL
           },
           {
             key: "duplicate",
             label: "복제",
             icon: <CopyOutlined />,
-            onClick: () => router.push(`/groups/${groupId}/forms/create?duplicateId=${record.id}`),
+            onClick: () => router.push(`/groups/${groupId}/forms/create?duplicate=${record.id}`), // ✅ 복제 URL
           },
           {
             key: "send",
