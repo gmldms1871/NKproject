@@ -357,7 +357,7 @@ export default function InviteModal({
       onCancel={onCancel}
       footer={null}
       width={600}
-      destroyOnClose
+      destroyOnHidden
     >
       <div className="mb-4">
         <p className="text-gray-600">

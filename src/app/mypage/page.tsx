@@ -384,7 +384,7 @@ export default function MyPage() {
           open={deleteModalVisible}
           onCancel={() => setDeleteModalVisible(false)}
           footer={null}
-          destroyOnClose
+          destroyOnHidden
         >
           <div className="mb-4">
             <p className="text-gray-600 mb-2">정말로 계정을 탈퇴하시겠습니까?</p>

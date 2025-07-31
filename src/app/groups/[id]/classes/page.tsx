@@ -534,7 +534,7 @@ export default function ClassesListPage() {
             createForm.resetFields();
           }}
           footer={null}
-          destroyOnClose
+          destroyOnHidden
           width={600}
         >
           <Form form={createForm} layout="vertical" onFinish={handleCreateClass}>

@@ -799,7 +799,7 @@ export default function ClassDetailPage() {
             addMemberForm.resetFields();
           }}
           footer={null}
-          destroyOnClose
+          destroyOnHidden
         >
           <Form form={addMemberForm} layout="vertical" onFinish={handleAddMember}>
             <Form.Item
@@ -849,7 +849,7 @@ export default function ClassDetailPage() {
           }}
           footer={null}
           width={600}
-          destroyOnClose
+          destroyOnHidden
         >
           {/* 태그 관리 모달 */}
           <Modal
@@ -863,7 +863,7 @@ export default function ClassDetailPage() {
             }}
             footer={null}
             width={600}
-            destroyOnClose
+            destroyOnHidden
           >
             <div className="space-y-4">
               <div>

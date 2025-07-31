@@ -1007,7 +1007,7 @@ export default function GroupDetailPage() {
             roleForm.resetFields();
           }}
           footer={null}
-          destroyOnClose
+          destroyOnHidden
         >
           <Form form={roleForm} layout="vertical" onFinish={handleCreateRole}>
             <Form.Item
@@ -1051,7 +1051,7 @@ export default function GroupDetailPage() {
           open={!!editingRole}
           onCancel={() => setEditingRole(null)}
           footer={null}
-          destroyOnClose
+          destroyOnHidden
         >
           {editingRole && (
             <Form
@@ -1113,7 +1113,7 @@ export default function GroupDetailPage() {
           onCancel={() => setSettingsModalVisible(false)}
           footer={null}
           width={600}
-          destroyOnClose
+          destroyOnHidden
         >
           {isOwner ? (
             <Tabs
