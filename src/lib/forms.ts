@@ -506,9 +506,10 @@ export async function getFormDetails(formId: string): Promise<ApiResponse<FormWi
             conceptTemplate: examQuestion.exam_concept_templates
               ? {
                   ...examQuestion.exam_concept_templates,
+                  items: examQuestion.exam_concept_templates.exam_concept_template_items || [],
                   conceptItems:
                     examQuestion.exam_concept_templates.exam_concept_template_items || [],
-                  usageCount: 0, // 실제로는 별도 계산
+                  usageCount: 0, // TODO: 실제로는 별도 계산
                 }
               : undefined,
           };
@@ -1932,48 +1933,6 @@ export async function getFormStatistics(groupId: string): Promise<ApiResponse<Fo
 // lib/forms.ts에 추가할 supervision_mappings 활용 함수들
 
 /**
- * supervision_mappings을 활용한 담당자 배정
- */
-export async function createOrUpdateSupervisionMapping(
-  groupId: string,
-  timeTeacherId?: string,
-  teacherId?: string
-): Promise<ApiResponse<string>> {
-  try {
-    // 기존 supervision_mapping 조회 시 null 처리
-    const { data: existingMapping } = await supabaseAdmin
-      .from("supervision_mappings")
-      .select("id")
-      .eq("group_id", groupId)
-      .eq("time_teacher_id", timeTeacherId ?? "") // 🔧 ?? null 사용
-      .eq("teacher_id", teacherId ?? "") // 🔧 ?? null 사용
-      .single();
-
-    if (existingMapping) {
-      return { success: true, data: existingMapping.id };
-    }
-
-    // 새로운 supervision_mapping 생성
-    const { data: newMapping, error } = await supabaseAdmin
-      .from("supervision_mappings")
-      .insert({
-        group_id: groupId,
-        time_teacher_id: timeTeacherId ?? null, // 🔧 ?? null 사용
-        teacher_id: teacherId ?? null, // 🔧 ?? null 사용
-      })
-      .select("id")
-      .single();
-
-    if (error) throw error;
-
-    return { success: true, data: newMapping.id };
-  } catch (error) {
-    console.error("Error creating supervision mapping:", error);
-    return { success: false, error: "담당자 매핑 생성 중 오류가 발생했습니다." };
-  }
-}
-
-/**
  * 폼의 담당자 정보를 supervision_mappings에 저장
  * (폼 전송 시 reports에서 이 정보를 사용)
  */
@@ -2240,5 +2199,240 @@ export async function getFormDetailsWithSupervision(formId: string): Promise<
   } catch (error) {
     console.error("Error fetching form details with supervision:", error);
     return { success: false, error: "폼 상세 정보 조회 중 오류가 발생했습니다." };
+  }
+}
+
+// forms.ts에 추가할 함수들
+
+/**
+ * 🔧 그룹의 개념 템플릿 목록 조회 (하드코딩 대신 실제 DB에서 조회)
+ */
+export async function getConceptTemplates(
+  groupId: string
+): Promise<ApiResponse<ConceptTemplateWithItems[]>> {
+  try {
+    const { data: templates, error } = await supabaseAdmin
+      .from("exam_concept_templates")
+      .select(
+        `
+        *,
+        exam_concept_template_items(*)
+      `
+      )
+      .eq("group_id", groupId)
+      .eq("status", "published") // 발행된 템플릿만 조회
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    const templatesWithItems: ConceptTemplateWithItems[] = (templates || []).map((template) => ({
+      id: template.id,
+      name: template.name,
+      group_id: template.group_id,
+      creator_id: template.creator_id,
+      concept_count: template.concept_count,
+      status: template.status,
+      created_at: template.created_at,
+      updated_at: template.updated_at,
+      items: (template.exam_concept_template_items || [])
+        .map((item) => ({
+          id: item.id,
+          template_id: item.template_id,
+          concept_text: item.concept_text,
+          concept_description: item.concept_description,
+          order_index: item.order_index,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        }))
+        .sort((a, b) => a.order_index - b.order_index),
+      conceptItems: (template.exam_concept_template_items || [])
+        .map((item) => ({
+          id: item.id,
+          template_id: item.template_id,
+          concept_text: item.concept_text,
+          concept_description: item.concept_description,
+          order_index: item.order_index,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        }))
+        .sort((a, b) => a.order_index - b.order_index),
+      usageCount: 0, // TODO: 실제 사용 횟수 계산 로직 추가
+    }));
+
+    return { success: true, data: templatesWithItems };
+  } catch (error) {
+    console.error("Error fetching concept templates:", error);
+    return { success: false, error: "개념 템플릿 조회 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 🔧 개념 템플릿 상세 조회
+ */
+export async function getConceptTemplateDetails(
+  templateId: string
+): Promise<ApiResponse<ConceptTemplateWithItems>> {
+  try {
+    const { data: template, error } = await supabaseAdmin
+      .from("exam_concept_templates")
+      .select(
+        `
+        *,
+        exam_concept_template_items(*)
+      `
+      )
+      .eq("id", templateId)
+      .single();
+
+    if (error) throw error;
+    if (!template) {
+      return { success: false, error: "개념 템플릿을 찾을 수 없습니다." };
+    }
+
+    const templateWithItems: ConceptTemplateWithItems = {
+      id: template.id,
+      name: template.name,
+      group_id: template.group_id,
+      creator_id: template.creator_id,
+      concept_count: template.concept_count,
+      status: template.status,
+      created_at: template.created_at,
+      updated_at: template.updated_at,
+      items: (template.exam_concept_template_items || [])
+        .map((item) => ({
+          id: item.id,
+          template_id: item.template_id,
+          concept_text: item.concept_text,
+          concept_description: item.concept_description,
+          order_index: item.order_index,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        }))
+        .sort((a, b) => a.order_index - b.order_index),
+      conceptItems: (template.exam_concept_template_items || [])
+        .map((item) => ({
+          id: item.id,
+          template_id: item.template_id,
+          concept_text: item.concept_text,
+          concept_description: item.concept_description,
+          order_index: item.order_index,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        }))
+        .sort((a, b) => a.order_index - b.order_index),
+      usageCount: 0, // TODO: 실제 사용 횟수 계산 로직 추가
+    };
+
+    return { success: true, data: templateWithItems };
+  } catch (error) {
+    console.error("Error fetching concept template details:", error);
+    return { success: false, error: "개념 템플릿 상세 조회 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 🔧 ConceptTemplateWithItems 타입 정의 (기존 타입과 호환)
+ */
+export interface ConceptTemplateWithItems {
+  id: string;
+  name: string;
+  group_id: string | null;
+  creator_id: string | null;
+  concept_count: number | null;
+  status: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  items: ConceptTemplateItem[];
+  conceptItems: ConceptTemplateItem[]; // 기존 코드와의 호환성을 위해 추가
+  usageCount: number; // 기존 코드와의 호환성을 위해 추가
+}
+
+export interface ConceptTemplateItem {
+  id: string;
+  template_id: string | null;
+  concept_text: string;
+  concept_description: string;
+  order_index: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/**
+ * 🔧 기존 supervision_mappings 활용 함수들 수정 (null 처리 개선)
+ */
+export async function createOrUpdateSupervisionMapping(
+  groupId: string,
+  timeTeacherId?: string,
+  teacherId?: string
+): Promise<ApiResponse<string>> {
+  try {
+    // 🔧 NULL 값 처리를 위한 쿼리 개선
+    let query = supabaseAdmin.from("supervision_mappings").select("id").eq("group_id", groupId);
+
+    // NULL 값 비교를 위한 개선된 조건
+    if (timeTeacherId) {
+      query = query.eq("time_teacher_id", timeTeacherId);
+    } else {
+      query = query.is("time_teacher_id", null);
+    }
+
+    if (teacherId) {
+      query = query.eq("teacher_id", teacherId);
+    } else {
+      query = query.is("teacher_id", null);
+    }
+
+    const { data: existingMapping } = await query.single();
+
+    if (existingMapping) {
+      return { success: true, data: existingMapping.id };
+    }
+
+    // 새로운 supervision_mapping 생성
+    const { data: newMapping, error } = await supabaseAdmin
+      .from("supervision_mappings")
+      .insert({
+        group_id: groupId,
+        time_teacher_id: timeTeacherId || null,
+        teacher_id: teacherId || null,
+      })
+      .select("id")
+      .single();
+
+    if (error) throw error;
+
+    return { success: true, data: newMapping.id };
+  } catch (error) {
+    console.error("Error creating supervision mapping:", error);
+    return { success: false, error: "담당자 매핑 생성 중 오류가 발생했습니다." };
+  }
+}
+
+/**
+ * 🔧 React Beautiful DND 순서 변경 함수
+ */
+export async function reorderFormQuestions(
+  request: ReorderQuestionsRequest
+): Promise<ApiResponse<boolean>> {
+  try {
+    // 각 질문의 order_index를 새로운 순서에 맞게 업데이트
+    for (let i = 0; i < request.questionOrders.length; i++) {
+      const { questionId } = request.questionOrders[i];
+
+      const { error } = await supabaseAdmin
+        .from("form_questions")
+        .update({
+          order_index: i,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", questionId);
+
+      if (error) throw error;
+    }
+
+    return { success: true, data: true };
+  } catch (error) {
+    console.error("Error reordering questions:", error);
+    return { success: false, error: "질문 순서 변경 중 오류가 발생했습니다." };
   }
 }
