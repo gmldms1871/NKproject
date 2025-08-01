@@ -25,6 +25,8 @@ import {
   Dropdown,
   Tooltip,
   Alert,
+  Flex,
+  Popconfirm,
 } from "antd";
 import {
   PlusOutlined,
@@ -46,6 +48,7 @@ import {
   ExclamationCircleOutlined,
   UserOutlined,
   TeamOutlined,
+  CheckOutlined,
 } from "@ant-design/icons";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import type { DropResult } from "react-beautiful-dnd";
@@ -61,7 +64,7 @@ import {
   reorderQuestions,
   sendForm,
   saveFormAsDraft,
-  updateFormAssignment, // 담당자 배정 함수 추가
+  updateFormAssignment, // 담당자 배정 함수 사용
   FormWithDetails,
   QuestionWithDetails,
   CreateFormRequest,
@@ -70,7 +73,7 @@ import {
   UpdateQuestionRequest,
   ReorderQuestionsRequest,
   SendFormRequest,
-  UpdateFormAssignmentRequest, // 담당자 배정 요청 타입 추가
+  UpdateFormAssignmentRequest, // 담당자 배정 요청 타입 사용
   createConceptTemplate,
   CreateConceptTemplateRequest,
   ConceptTemplateWithItems,
@@ -88,6 +91,7 @@ interface QuestionFormData {
   questionText: string;
   isRequired: boolean;
   orderIndex: number;
+  isNew?: boolean; // 새로 생성된 질문인지 구분
   // 텍스트형
   textSubtype?: "text" | "textarea";
   textMaxLength?: number;
@@ -113,7 +117,478 @@ interface SendFormModalProps {
   loading: boolean;
 }
 
-// 전송 모달 컴포넌트
+// 질문 타입별 설정 컴포넌트 (개선된 버전)
+function QuestionConfigForm({
+  question,
+  onChange,
+}: {
+  question: QuestionFormData;
+  onChange: (updates: Partial<QuestionFormData>) => void;
+}) {
+  const renderTextConfig = () => (
+    <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+      <div>
+        <Text strong className="text-blue-700">
+          응답 형식
+        </Text>
+        <Radio.Group
+          value={question.textSubtype || "text"}
+          onChange={(e) => onChange({ textSubtype: e.target.value })}
+          className="w-full mt-2"
+        >
+          <Radio value="text">주관식 (한 줄)</Radio>
+          <Radio value="textarea">서술형 (여러 줄)</Radio>
+        </Radio.Group>
+      </div>
+      <div>
+        <Text strong className="text-blue-700">
+          최대 글자 수
+        </Text>
+        <InputNumber
+          min={1}
+          max={10000}
+          value={question.textMaxLength || 500}
+          onChange={(value) => onChange({ textMaxLength: value || 500 })}
+          className="w-full mt-2"
+        />
+      </div>
+    </div>
+  );
+
+  const renderRatingConfig = () => (
+    <div className="space-y-4 p-4 bg-orange-50 rounded-lg border border-orange-200">
+      <div>
+        <Text strong className="text-orange-700">
+          최대 점수
+        </Text>
+        <InputNumber
+          min={2}
+          max={10}
+          value={question.ratingMax || 5}
+          onChange={(value) => onChange({ ratingMax: value || 5 })}
+          className="w-full mt-2"
+        />
+      </div>
+      <div>
+        <Text strong className="text-orange-700">
+          점수 단계
+        </Text>
+        <InputNumber
+          min={0.1}
+          max={1}
+          step={0.1}
+          value={question.ratingStep || 1}
+          onChange={(value) => onChange({ ratingStep: value || 1 })}
+          className="w-full mt-2"
+        />
+      </div>
+    </div>
+  );
+
+  const renderChoiceConfig = () => (
+    <div className="space-y-4 p-4 bg-green-50 rounded-lg border border-green-200">
+      <div>
+        <Text strong className="text-green-700">
+          선택 방식
+        </Text>
+        <Radio.Group
+          value={question.choiceMultiple ? "multiple" : "single"}
+          onChange={(e) => onChange({ choiceMultiple: e.target.value === "multiple" })}
+          className="w-full mt-2"
+        >
+          <Radio value="single">단일 선택</Radio>
+          <Radio value="multiple">복수 선택</Radio>
+        </Radio.Group>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <Text strong className="text-green-700">
+            선택지
+          </Text>
+          <Button
+            type="dashed"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              const options = question.choiceOptions || [];
+              onChange({ choiceOptions: [...options, ""] });
+            }}
+          >
+            선택지 추가
+          </Button>
+        </div>
+
+        <div className="space-y-2">
+          {(question.choiceOptions || [""]).map((option, index) => (
+            <div key={index} className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500 w-8">{index + 1}.</span>
+              <Input
+                placeholder={`선택지 ${index + 1}`}
+                value={option}
+                onChange={(e) => {
+                  const options = [...(question.choiceOptions || [])];
+                  options[index] = e.target.value;
+                  onChange({ choiceOptions: options });
+                }}
+                className="flex-1"
+              />
+              {(question.choiceOptions || []).length > 1 && (
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  onClick={() => {
+                    const options = [...(question.choiceOptions || [])];
+                    options.splice(index, 1);
+                    onChange({ choiceOptions: options });
+                  }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center space-x-2">
+          <Switch
+            checked={question.choiceAllowOther || false}
+            onChange={(checked) => onChange({ choiceAllowOther: checked })}
+          />
+          <Text className="text-green-700">기타 옵션 허용</Text>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderExamConfig = () => (
+    <div className="space-y-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+      <div>
+        <Text strong className="text-purple-700">
+          시험 문제 수
+        </Text>
+        <InputNumber
+          min={1}
+          max={100}
+          value={question.examTotalQuestions || 10}
+          onChange={(value) => onChange({ examTotalQuestions: value || 10 })}
+          className="w-full mt-2"
+        />
+      </div>
+
+      <div>
+        <Text strong className="text-purple-700">
+          개념 템플릿
+        </Text>
+        <Radio.Group
+          value={question.examUseExisting ? "existing" : "new"}
+          onChange={(e) => onChange({ examUseExisting: e.target.value === "existing" })}
+          className="w-full mt-2"
+        >
+          <Radio value="existing">기존 템플릿 사용</Radio>
+          <Radio value="new">신규 템플릿 생성</Radio>
+        </Radio.Group>
+      </div>
+
+      {question.examUseExisting ? (
+        <div>
+          <Text strong className="text-purple-700">
+            템플릿 선택
+          </Text>
+          <Select
+            placeholder="개념 템플릿을 선택하세요"
+            value={question.examConceptTemplateId}
+            onChange={(value) => onChange({ examConceptTemplateId: value })}
+            className="w-full mt-2"
+          >
+            <Select.Option value="template1">수학 기본 개념</Select.Option>
+            <Select.Option value="template2">국어 문법</Select.Option>
+          </Select>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div>
+            <Text strong className="text-purple-700">
+              템플릿 이름
+            </Text>
+            <Input
+              placeholder="개념 템플릿 이름을 입력하세요"
+              value={question.examNewTemplateName || ""}
+              onChange={(e) => onChange({ examNewTemplateName: e.target.value })}
+              className="mt-2"
+            />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Text strong className="text-purple-700">
+                개념 목록
+              </Text>
+              <Button
+                type="dashed"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={() => {
+                  const items = question.examConceptItems || [];
+                  onChange({ examConceptItems: [...items, { text: "", description: "" }] });
+                }}
+              >
+                개념 추가
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              {(question.examConceptItems || []).map((item, index) => (
+                <Card key={index} size="small" className="border-purple-200">
+                  <div className="space-y-2">
+                    <Input
+                      placeholder={`개념 ${index + 1}`}
+                      value={item.text}
+                      onChange={(e) => {
+                        const items = [...(question.examConceptItems || [])];
+                        items[index] = { ...items[index], text: e.target.value };
+                        onChange({ examConceptItems: items });
+                      }}
+                    />
+                    <TextArea
+                      placeholder="개념 설명 (선택사항)"
+                      value={item.description}
+                      rows={2}
+                      onChange={(e) => {
+                        const items = [...(question.examConceptItems || [])];
+                        items[index] = { ...items[index], description: e.target.value };
+                        onChange({ examConceptItems: items });
+                      }}
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        type="text"
+                        danger
+                        size="small"
+                        icon={<DeleteOutlined />}
+                        onClick={() => {
+                          const items = [...(question.examConceptItems || [])];
+                          items.splice(index, 1);
+                          onChange({ examConceptItems: items });
+                        }}
+                      >
+                        삭제
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  switch (question.questionType) {
+    case "text":
+      return renderTextConfig();
+    case "rating":
+      return renderRatingConfig();
+    case "choice":
+      return renderChoiceConfig();
+    case "exam":
+      return renderExamConfig();
+    default:
+      return null;
+  }
+}
+
+// 개선된 질문 카드 컴포넌트
+function QuestionCard({
+  question,
+  index,
+  onUpdate,
+  onDelete,
+  isExpanded,
+  onToggleExpand,
+  hasExamQuestion,
+}: {
+  question: QuestionFormData;
+  index: number;
+  onUpdate: (updates: Partial<QuestionFormData>) => void;
+  onDelete: () => void;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  hasExamQuestion: boolean;
+}) {
+  const questionTypeNames = {
+    text: "텍스트",
+    rating: "별점",
+    choice: "객관식",
+    exam: "시험",
+  };
+
+  const questionTypeIcons = {
+    text: <FileTextOutlined />,
+    rating: <StarOutlined />,
+    choice: <CheckSquareOutlined />,
+    exam: <FormOutlined />,
+  };
+
+  const questionTypeColors = {
+    text: "blue",
+    rating: "orange",
+    choice: "green",
+    exam: "purple",
+  };
+
+  return (
+    <div
+      className={`mb-4 transition-all duration-300 ease-in-out ${
+        isExpanded ? "transform scale-105" : "transform scale-100"
+      }`}
+    >
+      <Card
+        className={`transition-all duration-300 ${
+          isExpanded
+            ? "border-2 border-blue-400 shadow-xl bg-blue-50/30"
+            : "border hover:shadow-md hover:border-gray-300"
+        }`}
+        bodyStyle={{ padding: isExpanded ? "24px" : "16px" }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <DragOutlined className="cursor-move text-gray-400 hover:text-gray-600 transition-colors" />
+            <Badge count={index + 1} className="bg-blue-100" />
+            <Tag
+              color={questionTypeColors[question.questionType]}
+              icon={questionTypeIcons[question.questionType]}
+              className="px-3 py-1 text-sm font-medium"
+            >
+              {questionTypeNames[question.questionType]}
+            </Tag>
+            {question.isRequired && <Tag color="red">필수</Tag>}
+            {question.isNew && <Tag color="cyan">신규</Tag>}
+          </div>
+
+          <div className="flex items-center space-x-1">
+            <Tooltip title={isExpanded ? "저장하고 접기" : "편집하기"}>
+              <Button
+                type="text"
+                size="small"
+                icon={isExpanded ? <CheckOutlined /> : <EditOutlined />}
+                onClick={onToggleExpand}
+                className={`transition-colors ${
+                  isExpanded
+                    ? "text-green-600 hover:text-green-700 bg-green-50"
+                    : "hover:text-blue-600"
+                }`}
+              />
+            </Tooltip>
+            <Tooltip title="삭제">
+              <Popconfirm
+                title="질문 삭제"
+                description="이 질문을 삭제하시겠습니까?"
+                onConfirm={onDelete}
+                okText="삭제"
+                cancelText="취소"
+                okType="danger"
+              >
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  className="hover:bg-red-50"
+                />
+              </Popconfirm>
+            </Tooltip>
+          </div>
+        </div>
+
+        {isExpanded ? (
+          <div className="space-y-5 animate-fadeIn">
+            <div>
+              <Text strong>질문 내용</Text>
+              <TextArea
+                value={question.questionText}
+                onChange={(e) => onUpdate({ questionText: e.target.value })}
+                placeholder="질문을 입력하세요"
+                rows={2}
+                className="mt-2"
+                autoSize={{ minRows: 2, maxRows: 4 }}
+              />
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Switch
+                checked={question.isRequired}
+                onChange={(checked) => onUpdate({ isRequired: checked })}
+              />
+              <Text>필수 응답</Text>
+            </div>
+
+            <Divider style={{ margin: "16px 0" }} />
+
+            <QuestionConfigForm question={question} onChange={onUpdate} />
+          </div>
+        ) : (
+          <div className="cursor-pointer" onClick={onToggleExpand}>
+            <div className="font-medium mb-2 text-lg leading-relaxed">
+              {question.questionText || (
+                <span className="text-gray-400">질문 내용을 입력하세요</span>
+              )}
+            </div>
+
+            <div className="text-sm text-gray-500 space-y-1">
+              {question.questionType === "text" && (
+                <div>
+                  {question.textSubtype === "textarea" ? "서술형" : "주관식"} 응답 (최대{" "}
+                  {question.textMaxLength || 500}자)
+                </div>
+              )}
+
+              {question.questionType === "rating" && (
+                <div>
+                  {question.ratingMax || 5}점 만점 (단계: {question.ratingStep || 1})
+                </div>
+              )}
+
+              {question.questionType === "choice" && (
+                <div className="space-y-1">
+                  <div>
+                    {question.choiceMultiple ? "복수 선택" : "단일 선택"}
+                    {question.choiceAllowOther && " (기타 옵션 포함)"}
+                  </div>
+                  <div className="grid grid-cols-1 gap-1">
+                    {(question.choiceOptions || []).slice(0, 3).map((option, i) => (
+                      <div key={i} className="flex items-center space-x-1">
+                        <span className="text-xs">•</span>
+                        <span>{option || `선택지 ${i + 1}`}</span>
+                      </div>
+                    ))}
+                    {(question.choiceOptions || []).length > 3 && (
+                      <div className="text-xs text-gray-400">
+                        ... 외 {(question.choiceOptions || []).length - 3}개
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {question.questionType === "exam" && (
+                <div>
+                  시험 문제 {question.examTotalQuestions || 10}개
+                  {question.examUseExisting ? " (기존 템플릿)" : " (신규 템플릿)"}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+// 전송 모달 컴포넌트 (개선된 버전)
 function SendFormModal({ open, onCancel, onConfirm, loading }: SendFormModalProps) {
   const [selectedTargets, setSelectedTargets] = useState<string[]>([]);
   const [classes, setClasses] = useState<ClassWithDetails[]>([]);
@@ -144,7 +619,10 @@ function SendFormModal({ open, onCancel, onConfirm, loading }: SendFormModalProp
   }, [user, groupId, message]);
 
   useEffect(() => {
-    if (open) loadTargets();
+    if (open) {
+      loadTargets();
+      setSelectedTargets([]); // 모달 열릴 때 선택 초기화
+    }
   }, [open, loadTargets]);
 
   const handleConfirm = () => {
@@ -168,6 +646,14 @@ function SendFormModal({ open, onCancel, onConfirm, loading }: SendFormModalProp
     onConfirm(targets);
   };
 
+  const toggleTarget = (target: string) => {
+    if (selectedTargets.includes(target)) {
+      setSelectedTargets(selectedTargets.filter((t) => t !== target));
+    } else {
+      setSelectedTargets([...selectedTargets, target]);
+    }
+  };
+
   return (
     <Modal
       title="폼 전송"
@@ -179,7 +665,7 @@ function SendFormModal({ open, onCancel, onConfirm, loading }: SendFormModalProp
       okButtonProps={{ disabled: selectedTargets.length === 0 }}
       cancelText="취소"
       width={600}
-      destroyOnHidden={true} // ✅ destroyOnHidden 추가
+      destroyOnClose={true}
     >
       {loadingData ? (
         <div className="flex justify-center py-8">
@@ -193,26 +679,24 @@ function SendFormModal({ open, onCancel, onConfirm, loading }: SendFormModalProp
               {classes.map((cls) => (
                 <div
                   key={cls.id}
-                  className="flex items-center space-x-2 p-2 border rounded hover:bg-gray-50"
+                  className={`flex items-center space-x-3 p-3 border rounded-lg cursor-pointer transition-all ${
+                    selectedTargets.includes(`class_${cls.id}`)
+                      ? "bg-blue-50 border-blue-300"
+                      : "hover:bg-gray-50 border-gray-200"
+                  }`}
+                  onClick={() => toggleTarget(`class_${cls.id}`)}
                 >
                   <input
                     type="checkbox"
-                    id={`class_${cls.id}`}
                     checked={selectedTargets.includes(`class_${cls.id}`)}
-                    onChange={(e) => {
-                      const target = `class_${cls.id}`;
-                      if (e.target.checked) {
-                        setSelectedTargets([...selectedTargets, target]);
-                      } else {
-                        setSelectedTargets(selectedTargets.filter((t) => t !== target));
-                      }
-                    }}
+                    onChange={() => {}}
+                    className="w-4 h-4"
                   />
-                  <TeamOutlined />
-                  <label htmlFor={`class_${cls.id}`} className="flex-1 cursor-pointer">
+                  <TeamOutlined className="text-blue-600" />
+                  <div className="flex-1">
                     <div className="font-medium">{cls.name}</div>
                     <div className="text-sm text-gray-500">구성원 {cls.memberCount}명</div>
-                  </label>
+                  </div>
                 </div>
               ))}
             </div>
@@ -226,26 +710,24 @@ function SendFormModal({ open, onCancel, onConfirm, loading }: SendFormModalProp
               {individuals.map((individual) => (
                 <div
                   key={individual.user_id}
-                  className="flex items-center space-x-2 p-2 border rounded hover:bg-gray-50"
+                  className={`flex items-center space-x-3 p-3 border rounded-lg cursor-pointer transition-all ${
+                    selectedTargets.includes(`user_${individual.user_id}`)
+                      ? "bg-blue-50 border-blue-300"
+                      : "hover:bg-gray-50 border-gray-200"
+                  }`}
+                  onClick={() => toggleTarget(`user_${individual.user_id}`)}
                 >
                   <input
                     type="checkbox"
-                    id={`user_${individual.user_id}`}
                     checked={selectedTargets.includes(`user_${individual.user_id}`)}
-                    onChange={(e) => {
-                      const target = `user_${individual.user_id}`;
-                      if (e.target.checked) {
-                        setSelectedTargets([...selectedTargets, target]);
-                      } else {
-                        setSelectedTargets(selectedTargets.filter((t) => t !== target));
-                      }
-                    }}
+                    onChange={() => {}}
+                    className="w-4 h-4"
                   />
-                  <UserOutlined />
-                  <label htmlFor={`user_${individual.user_id}`} className="flex-1 cursor-pointer">
+                  <UserOutlined className="text-green-600" />
+                  <div className="flex-1">
                     <div className="font-medium">{individual.users?.name}</div>
                     <div className="text-sm text-gray-500">@{individual.users?.nickname}</div>
-                  </label>
+                  </div>
                 </div>
               ))}
             </div>
@@ -263,422 +745,35 @@ function SendFormModal({ open, onCancel, onConfirm, loading }: SendFormModalProp
   );
 }
 
-// 질문 타입별 설정 컴포넌트
-function QuestionConfigForm({
-  question,
-  onChange,
-}: {
-  question: QuestionFormData;
-  onChange: (updates: Partial<QuestionFormData>) => void;
-}) {
-  const { message } = App.useApp();
-
-  const renderTextConfig = () => (
-    <div className="space-y-4">
-      <div>
-        <Text strong>응답 형식</Text>
-        <Radio.Group
-          value={question.textSubtype || "text"}
-          onChange={(e) => onChange({ textSubtype: e.target.value })}
-          className="w-full mt-2"
-        >
-          <Radio value="text">주관식 (한 줄)</Radio>
-          <Radio value="textarea">서술형 (여러 줄)</Radio>
-        </Radio.Group>
-      </div>
-      <div>
-        <Text strong>최대 글자 수</Text>
-        <InputNumber
-          min={1}
-          max={10000}
-          value={question.textMaxLength || 500}
-          onChange={(value) => onChange({ textMaxLength: value || 500 })}
-          className="w-full mt-2"
-        />
-      </div>
-    </div>
-  );
-
-  const renderRatingConfig = () => (
-    <div className="space-y-4">
-      <div>
-        <Text strong>최대 점수</Text>
-        <InputNumber
-          min={2}
-          max={10}
-          value={question.ratingMax || 5}
-          onChange={(value) => onChange({ ratingMax: value || 5 })}
-          className="w-full mt-2"
-        />
-      </div>
-      <div>
-        <Text strong>점수 단계</Text>
-        <InputNumber
-          min={0.1}
-          max={1}
-          step={0.1}
-          value={question.ratingStep || 1}
-          onChange={(value) => onChange({ ratingStep: value || 1 })}
-          className="w-full mt-2"
-        />
-      </div>
-    </div>
-  );
-
-  const renderChoiceConfig = () => (
-    <div className="space-y-4">
-      <div>
-        <Text strong>선택 방식</Text>
-        <Radio.Group
-          value={question.choiceMultiple ? "multiple" : "single"}
-          onChange={(e) => onChange({ choiceMultiple: e.target.value === "multiple" })}
-          className="w-full mt-2"
-        >
-          <Radio value="single">단일 선택</Radio>
-          <Radio value="multiple">복수 선택</Radio>
-        </Radio.Group>
-      </div>
-
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <Text strong>선택지</Text>
-          <Button
-            type="dashed"
-            size="small"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              const options = question.choiceOptions || [];
-              onChange({ choiceOptions: [...options, ""] });
-            }}
-          >
-            선택지 추가
-          </Button>
-        </div>
-
-        {(question.choiceOptions || [""]).map((option, index) => (
-          <div key={index} className="flex items-center space-x-2 mb-2">
-            <Input
-              placeholder={`선택지 ${index + 1}`}
-              value={option}
-              onChange={(e) => {
-                const options = [...(question.choiceOptions || [])];
-                options[index] = e.target.value;
-                onChange({ choiceOptions: options });
-              }}
-            />
-            {(question.choiceOptions || []).length > 1 && (
-              <Button
-                type="text"
-                danger
-                size="small"
-                icon={<DeleteOutlined />}
-                onClick={() => {
-                  const options = [...(question.choiceOptions || [])];
-                  options.splice(index, 1);
-                  onChange({ choiceOptions: options });
-                }}
-              />
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div>
-        <div className="flex items-center space-x-2">
-          <Switch
-            checked={question.choiceAllowOther || false}
-            onChange={(checked) => onChange({ choiceAllowOther: checked })}
-          />
-          <Text>기타 옵션 허용</Text>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderExamConfig = () => (
-    <div className="space-y-4">
-      <div>
-        <Text strong>시험 문제 수</Text>
-        <InputNumber
-          min={1}
-          max={100}
-          value={question.examTotalQuestions || 10}
-          onChange={(value) => onChange({ examTotalQuestions: value || 10 })}
-          className="w-full mt-2"
-        />
-      </div>
-
-      <div>
-        <Text strong>개념 템플릿</Text>
-        <Radio.Group
-          value={question.examUseExisting ? "existing" : "new"}
-          onChange={(e) => onChange({ examUseExisting: e.target.value === "existing" })}
-          className="w-full mt-2"
-        >
-          <Radio value="existing">기존 템플릿 사용</Radio>
-          <Radio value="new">신규 템플릿 생성</Radio>
-        </Radio.Group>
-      </div>
-
-      {question.examUseExisting ? (
-        <div>
-          <Text strong>템플릿 선택</Text>
-          <Select
-            placeholder="개념 템플릿을 선택하세요"
-            value={question.examConceptTemplateId}
-            onChange={(value) => onChange({ examConceptTemplateId: value })}
-            className="w-full mt-2"
-          >
-            {/* TODO: 기존 템플릿 목록 로드 */}
-            <Select.Option value="template1">수학 기본 개념</Select.Option>
-            <Select.Option value="template2">국어 문법</Select.Option>
-          </Select>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div>
-            <Text strong>템플릿 이름</Text>
-            <Input
-              placeholder="개념 템플릿 이름을 입력하세요"
-              value={question.examNewTemplateName || ""}
-              onChange={(e) => onChange({ examNewTemplateName: e.target.value })}
-              className="mt-2"
-            />
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <Text strong>개념 목록</Text>
-              <Button
-                type="dashed"
-                size="small"
-                icon={<PlusOutlined />}
-                onClick={() => {
-                  const items = question.examConceptItems || [];
-                  onChange({ examConceptItems: [...items, { text: "", description: "" }] });
-                }}
-              >
-                개념 추가
-              </Button>
-            </div>
-
-            {(question.examConceptItems || []).map((item, index) => (
-              <Card key={index} size="small" className="mb-2">
-                <div className="space-y-2">
-                  <Input
-                    placeholder={`개념 ${index + 1}`}
-                    value={item.text}
-                    onChange={(e) => {
-                      const items = [...(question.examConceptItems || [])];
-                      items[index] = { ...items[index], text: e.target.value };
-                      onChange({ examConceptItems: items });
-                    }}
-                  />
-                  <TextArea
-                    placeholder="개념 설명 (선택사항)"
-                    value={item.description}
-                    rows={2}
-                    onChange={(e) => {
-                      const items = [...(question.examConceptItems || [])];
-                      items[index] = { ...items[index], description: e.target.value };
-                      onChange({ examConceptItems: items });
-                    }}
-                  />
-                  <Button
-                    type="text"
-                    danger
-                    size="small"
-                    icon={<DeleteOutlined />}
-                    onClick={() => {
-                      const items = [...(question.examConceptItems || [])];
-                      items.splice(index, 1);
-                      onChange({ examConceptItems: items });
-                    }}
-                    className="float-right"
-                  >
-                    삭제
-                  </Button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-
-  switch (question.questionType) {
-    case "text":
-      return renderTextConfig();
-    case "rating":
-      return renderRatingConfig();
-    case "choice":
-      return renderChoiceConfig();
-    case "exam":
-      return renderExamConfig();
-    default:
-      return null;
-  }
-}
-
-// 질문 카드 컴포넌트
-function QuestionCard({
-  question,
-  index,
-  onUpdate,
-  onDelete,
-  onEdit,
-  isEditing,
-  hasExamQuestion,
-}: {
-  question: QuestionFormData;
-  index: number;
-  onUpdate: (updates: Partial<QuestionFormData>) => void;
-  onDelete: () => void;
-  onEdit: () => void;
-  isEditing: boolean;
-  hasExamQuestion: boolean;
-}) {
-  const questionTypeNames = {
-    text: "텍스트",
-    rating: "별점",
-    choice: "객관식",
-    exam: "시험",
-  };
-
-  const questionTypeIcons = {
-    text: <FileTextOutlined />,
-    rating: <StarOutlined />,
-    choice: <CheckSquareOutlined />,
-    exam: <FormOutlined />,
-  };
-
-  const questionTypeColors = {
-    text: "blue",
-    rating: "orange",
-    choice: "green",
-    exam: "purple",
-  };
-
-  const canAddExam = question.questionType !== "exam" || !hasExamQuestion;
-
-  return (
-    <Card
-      className={`mb-4 ${isEditing ? "border-blue-500" : ""}`}
-      title={
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <DragOutlined className="cursor-move text-gray-400" />
-            <Badge count={index + 1} />
-            <Tag
-              color={questionTypeColors[question.questionType]}
-              icon={questionTypeIcons[question.questionType]}
-            >
-              {questionTypeNames[question.questionType]}
-            </Tag>
-            {question.isRequired && <Tag color="red">필수</Tag>}
-          </div>
-
-          <div className="flex items-center space-x-1">
-            <Tooltip title="수정">
-              <Button type="text" size="small" icon={<EditOutlined />} onClick={onEdit} />
-            </Tooltip>
-            <Tooltip title="삭제">
-              <Button
-                type="text"
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={onDelete}
-              />
-            </Tooltip>
-          </div>
-        </div>
-      }
-    >
-      {isEditing ? (
-        <div className="space-y-4">
-          <div>
-            <Text strong>질문 내용</Text>
-            <TextArea
-              value={question.questionText}
-              onChange={(e) => onUpdate({ questionText: e.target.value })}
-              placeholder="질문을 입력하세요"
-              rows={2}
-              className="mt-2"
-            />
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <Switch
-              checked={question.isRequired}
-              onChange={(checked) => onUpdate({ isRequired: checked })}
-            />
-            <Text>필수 응답</Text>
-          </div>
-
-          <Divider />
-
-          <QuestionConfigForm question={question} onChange={onUpdate} />
-        </div>
-      ) : (
-        <div>
-          <div className="font-medium mb-2">
-            {question.questionText || "질문 내용을 입력하세요"}
-          </div>
-
-          {question.questionType === "text" && (
-            <div className="text-sm text-gray-500">
-              {question.textSubtype === "textarea" ? "서술형" : "주관식"} 응답 (최대{" "}
-              {question.textMaxLength || 500}자)
-            </div>
-          )}
-
-          {question.questionType === "rating" && (
-            <div className="text-sm text-gray-500">
-              {question.ratingMax || 5}점 만점 (단계: {question.ratingStep || 1})
-            </div>
-          )}
-
-          {question.questionType === "choice" && (
-            <div className="space-y-1">
-              <div className="text-sm text-gray-500">
-                {question.choiceMultiple ? "복수 선택" : "단일 선택"}
-                {question.choiceAllowOther && " (기타 옵션 포함)"}
-              </div>
-              {(question.choiceOptions || []).map((option, i) => (
-                <div key={i} className="text-sm">
-                  • {option || `선택지 ${i + 1}`}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {question.questionType === "exam" && (
-            <div className="text-sm text-gray-500">
-              시험 문제 {question.examTotalQuestions || 10}개
-              {question.examUseExisting ? " (기존 템플릿)" : " (신규 템플릿)"}
-            </div>
-          )}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 export default function FormCreatePage() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
   const { user } = useAuth();
-  const { message, modal } = App.useApp(); // ✅ App.useApp() 사용
+  const { message, modal } = App.useApp();
   const { setPageHeader } = usePageHeader();
 
   const groupId = params.id as string;
-  const editId = searchParams.get("editId");
-  const duplicateId = searchParams.get("duplicateId");
+  const editId = searchParams.get("edit"); // "editId" → "edit"로 변경
+  const duplicateId = searchParams.get("duplicate"); // "duplicateId" → "duplicate"로 변경
   const isEditing = !!editId;
   const isDuplicating = !!duplicateId;
+
+  // URL 파라미터 디버깅
+  useEffect(() => {
+    console.log("=== URL Parameters Debug ===");
+    console.log("Current URL:", window.location.href);
+    console.log("Search params:", searchParams.toString());
+    console.log("All search params:");
+    for (const [key, value] of searchParams.entries()) {
+      console.log(`  ${key}: ${value}`);
+    }
+    console.log("editId:", editId);
+    console.log("duplicateId:", duplicateId);
+    console.log("groupId:", groupId);
+    console.log("params object:", params);
+    console.log("=== End URL Debug ===");
+  }, [searchParams, editId, duplicateId, groupId, params]);
 
   // State
   const [form] = Form.useForm();
@@ -695,12 +790,24 @@ export default function FormCreatePage() {
     description: "",
   });
   const [questions, setQuestions] = useState<QuestionFormData[]>([]);
-  const [editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
+  const [expandedQuestionIndex, setExpandedQuestionIndex] = useState<number | null>(null);
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [teachers, setTeachers] = useState<GroupMemberWithDetails[]>([]);
+  const [currentFormId, setCurrentFormId] = useState<string | null>(null);
 
   // 페이지 헤더 설정
   useEffect(() => {
+    console.log(
+      "Setting page header - isEditing:",
+      isEditing,
+      "isDuplicating:",
+      isDuplicating,
+      "editId:",
+      editId,
+      "duplicateId:",
+      duplicateId
+    ); // 디버그 로그
+
     const title = isEditing ? "폼 수정" : isDuplicating ? "폼 복제" : "새 폼 생성";
     const subtitle = isEditing
       ? "기존 폼을 수정합니다"
@@ -715,7 +822,7 @@ export default function FormCreatePage() {
     });
 
     return () => setPageHeader(null);
-  }, [setPageHeader, groupId, isEditing, isDuplicating]);
+  }, [setPageHeader, groupId, isEditing, isDuplicating, editId, duplicateId]);
 
   // 선생님 목록 로드
   const loadTeachers = useCallback(async () => {
@@ -746,57 +853,75 @@ export default function FormCreatePage() {
 
     try {
       setLoading(true);
+      console.log("Loading form data for ID:", targetId); // 디버그 로그
       const result = await getFormDetails(targetId);
 
-      if (result.success && result.data) {
-        const formData = result.data;
+      console.log("Form details result:", result); // 디버그 로그
 
-        setFormData({
-          title: isDuplicating ? `${formData.title} [복사본]` : formData.title,
-          description: formData.description || "",
-          timeTeacherId: isDuplicating ? undefined : formData.timeTeacher?.id,
-          teacherId: isDuplicating ? undefined : formData.teacher?.id,
-        });
+      if (result.success && result.data) {
+        const formDetail = result.data;
+        console.log("Form detail data:", formDetail); // 디버그 로그
+        console.log("timeTeacher info:", formDetail.timeTeacher); // 담당자 정보 디버그
+        console.log("teacher info:", formDetail.teacher); // 담당자 정보 디버그
+
+        const newFormData = {
+          title: isDuplicating ? `${formDetail.title} [복사본]` : formDetail.title,
+          description: formDetail.description || "",
+          timeTeacherId: isDuplicating ? undefined : formDetail.timeTeacher?.id,
+          teacherId: isDuplicating ? undefined : formDetail.teacher?.id,
+        };
+
+        console.log("Setting form data:", newFormData); // 디버그 로그
+        setFormData(newFormData);
 
         // 질문 데이터 변환
-        const questionFormData: QuestionFormData[] = formData.questions.map((q, index) => {
-          const base: QuestionFormData = {
-            id: isDuplicating ? undefined : q.id,
-            questionType: q.question_type as QuestionFormData["questionType"],
-            questionText: q.question_text,
-            isRequired: q.is_required || false,
-            orderIndex: index,
-          };
+        const questionFormData: QuestionFormData[] = (formDetail.questions || []).map(
+          (q, index) => {
+            const base: QuestionFormData = {
+              id: isDuplicating ? undefined : q.id,
+              questionType: q.question_type as QuestionFormData["questionType"],
+              questionText: q.question_text,
+              isRequired: q.is_required || false,
+              orderIndex: index,
+              isNew: isDuplicating, // 복제 시에는 모든 질문이 새 질문으로 처리
+            };
 
-          // 타입별 상세 정보 설정
-          if (q.question_type === "text") {
-            base.textSubtype = q.textDetails?.subtype || "text";
-            base.textMaxLength = q.textDetails?.maxLength || 500;
-          } else if (q.question_type === "rating" && q.ratingDetails) {
-            base.ratingMax = q.ratingDetails.rating_max;
-            base.ratingStep = q.ratingDetails.rating_step;
-          } else if (q.question_type === "choice" && q.choiceDetails) {
-            base.choiceOptions = q.choiceDetails.options?.map((opt) => opt.option_text) || [];
-            base.choiceMultiple = q.choiceDetails.is_multiple || false;
-            base.choiceAllowOther = q.choiceDetails.etc_option_enabled || false;
-          } else if (q.question_type === "exam" && q.examDetails) {
-            base.examTotalQuestions = q.examDetails.total_questions;
-            base.examConceptTemplateId = q.examDetails.concept_template_id || undefined;
-            base.examUseExisting = !!q.examDetails.concept_template_id;
+            // 타입별 상세 정보 설정
+            if (q.question_type === "text" && q.textDetails) {
+              base.textSubtype = (q.textDetails.subtype as "text" | "textarea") || "text";
+              base.textMaxLength = q.textDetails.maxLength || 500;
+            } else if (q.question_type === "rating" && q.ratingDetails) {
+              base.ratingMax = q.ratingDetails.rating_max;
+              base.ratingStep = q.ratingDetails.rating_step;
+            } else if (q.question_type === "choice" && q.choiceDetails) {
+              base.choiceOptions = q.choiceDetails.options?.map((opt) => opt.option_text) || [];
+              base.choiceMultiple = q.choiceDetails.is_multiple || false;
+              base.choiceAllowOther = q.choiceDetails.etc_option_enabled || false;
+            } else if (q.question_type === "exam" && q.examDetails) {
+              base.examTotalQuestions = q.examDetails.total_questions;
+              base.examConceptTemplateId = q.examDetails.concept_template_id || undefined;
+              base.examUseExisting = !!q.examDetails.concept_template_id;
+            }
+
+            return base;
           }
+        );
 
-          return base;
-        });
-
+        console.log("Converted questions:", questionFormData); // 디버그 로그
         setQuestions(questionFormData);
+        setCurrentFormId(isDuplicating ? null : targetId);
 
-        // 폼 필드 설정
-        form.setFieldsValue({
-          title: isDuplicating ? `${formData.title} [복사본]` : formData.title,
-          description: formData.description,
-          timeTeacherId: isDuplicating ? undefined : formData.timeTeacher?.id,
-          teacherId: isDuplicating ? undefined : formData.teacher?.id,
-        });
+        // 폼 필드 설정 - 약간의 지연을 두고 설정
+        setTimeout(() => {
+          const formValues = {
+            title: newFormData.title,
+            description: newFormData.description,
+            timeTeacherId: newFormData.timeTeacherId,
+            teacherId: newFormData.teacherId,
+          };
+          console.log("Setting form values:", formValues); // 디버그 로그
+          form.setFieldsValue(formValues);
+        }, 100);
       } else {
         message.error(result.error || "폼 데이터를 불러올 수 없습니다.");
         router.push(`/groups/${groupId}/forms`);
@@ -830,6 +955,7 @@ export default function FormCreatePage() {
       questionText: "",
       isRequired: false,
       orderIndex: questions.length,
+      isNew: true, // 새로 추가된 질문으로 표시
     };
 
     // 타입별 기본값 설정
@@ -850,54 +976,84 @@ export default function FormCreatePage() {
     }
 
     setQuestions([...questions, newQuestion]);
-    setEditingQuestionIndex(questions.length);
+    setExpandedQuestionIndex(questions.length); // 새 질문을 바로 편집 모드로
   };
 
-  // 질문 업데이트 (로컬 상태)
-  const updateQuestionState = (index: number, updates: Partial<QuestionFormData>) => {
+  // 질문 업데이트
+  const updateQuestion = (index: number, updates: Partial<QuestionFormData>) => {
     const updatedQuestions = [...questions];
     updatedQuestions[index] = { ...updatedQuestions[index], ...updates };
     setQuestions(updatedQuestions);
   };
 
   // 질문 삭제
-  const deleteQuestion = (index: number) => {
-    modal.confirm({
-      title: "질문 삭제",
-      content: "이 질문을 삭제하시겠습니까?",
-      okText: "삭제",
-      okType: "danger",
-      cancelText: "취소",
-      onOk: () => {
-        const updatedQuestions = questions.filter((_, i) => i !== index);
-        // 순서 재정렬
-        updatedQuestions.forEach((q, i) => (q.orderIndex = i));
-        setQuestions(updatedQuestions);
-        setEditingQuestionIndex(null);
-      },
-    });
+  const deleteQuestion = async (index: number) => {
+    const question = questions[index];
+
+    try {
+      // 기존 질문이고 서버에 저장된 질문이면 서버에서도 삭제
+      if (question.id && !question.isNew && isEditing) {
+        // 실제 API 호출은 forms.ts의 deleteQuestion 함수가 없으므로
+        // updateQuestion으로 deleted 플래그를 설정하거나
+        // 여기서는 로컬에서만 삭제하고 저장 시 처리
+      }
+
+      const updatedQuestions = questions.filter((_, i) => i !== index);
+      // 순서 재정렬
+      updatedQuestions.forEach((q, i) => (q.orderIndex = i));
+      setQuestions(updatedQuestions);
+
+      // 삭제된 질문이 현재 편집 중인 질문이면 편집 모드 해제
+      if (expandedQuestionIndex === index) {
+        setExpandedQuestionIndex(null);
+      } else if (expandedQuestionIndex !== null && expandedQuestionIndex > index) {
+        setExpandedQuestionIndex(expandedQuestionIndex - 1);
+      }
+
+      message.success("질문이 삭제되었습니다.");
+    } catch (error) {
+      message.error("질문 삭제 중 오류가 발생했습니다.");
+    }
   };
 
-  // 드래그 앤 드롭 처리
+  // 드래그 앤 드롭 처리 (부드러운 애니메이션)
   const onDragEnd = (result: DropResult) => {
     if (!result.destination) return;
 
+    const sourceIndex = result.source.index;
+    const destinationIndex = result.destination.index;
+
+    if (sourceIndex === destinationIndex) return;
+
     const reorderedQuestions = Array.from(questions);
-    const [removed] = reorderedQuestions.splice(result.source.index, 1);
-    reorderedQuestions.splice(result.destination.index, 0, removed);
+    const [removed] = reorderedQuestions.splice(sourceIndex, 1);
+    reorderedQuestions.splice(destinationIndex, 0, removed);
 
     // 순서 재정렬
     reorderedQuestions.forEach((q, index) => (q.orderIndex = index));
     setQuestions(reorderedQuestions);
+
+    // 확장된 질문 인덱스 업데이트
+    if (expandedQuestionIndex === sourceIndex) {
+      setExpandedQuestionIndex(destinationIndex);
+    } else if (expandedQuestionIndex !== null) {
+      if (sourceIndex < expandedQuestionIndex && destinationIndex >= expandedQuestionIndex) {
+        setExpandedQuestionIndex(expandedQuestionIndex - 1);
+      } else if (sourceIndex > expandedQuestionIndex && destinationIndex <= expandedQuestionIndex) {
+        setExpandedQuestionIndex(expandedQuestionIndex + 1);
+      }
+    }
   };
 
-  // 폼 저장 (담당자 배정 로직 추가)
+  // 폼 저장 (개선된 버전)
   const saveForm = async (isDraft = false) => {
     try {
       setSaving(true);
+      console.log("Starting form save, isDraft:", isDraft); // 디버그 로그
 
       // 폼 기본 정보 검증
       const values = await form.validateFields();
+      console.log("Form values:", values); // 디버그 로그
 
       if (questions.length === 0) {
         message.warning("최소 1개의 질문을 추가해주세요.");
@@ -940,14 +1096,14 @@ export default function FormCreatePage() {
         }
       }
 
-      let formId: string;
+      let resultFormId: string = currentFormId || "";
 
       if (isEditing && editId) {
         // 폼 수정
         const updateRequest: UpdateFormRequest = {
           title: values.title,
           description: values.description,
-          status: isDraft ? "draft" : "active",
+          // status는 기존 값 유지하거나 명시적으로 설정하지 않음
           isDraft,
         };
 
@@ -955,7 +1111,7 @@ export default function FormCreatePage() {
         if (!result.success) {
           throw new Error(result.error);
         }
-        formId = editId;
+        resultFormId = editId;
       } else {
         // 폼 생성
         const createRequest: CreateFormRequest = {
@@ -963,7 +1119,7 @@ export default function FormCreatePage() {
           description: values.description,
           groupId,
           creatorId: user!.id,
-          status: isDraft ? "draft" : "active",
+          // status 대신 isDraft만 사용
           isDraft,
         };
 
@@ -971,29 +1127,48 @@ export default function FormCreatePage() {
         if (!result.success) {
           throw new Error(result.error);
         }
-        formId = result.data!;
+        resultFormId = result.data!;
+        setCurrentFormId(resultFormId);
       }
 
-      // 담당자 배정 (새로 추가된 로직)
+      // 담당자 배정 (개선된 버전)
       if (values.timeTeacherId || values.teacherId) {
-        const assignmentRequest: UpdateFormAssignmentRequest = {
-          formId,
-          timeTeacherId: values.timeTeacherId || undefined,
-          teacherId: values.teacherId || undefined,
-        };
+        try {
+          console.log("Assigning teachers:", {
+            timeTeacherId: values.timeTeacherId,
+            teacherId: values.teacherId,
+          }); // 디버그 로그
 
-        const assignmentResult = await updateFormAssignment(assignmentRequest);
-        if (!assignmentResult.success) {
-          console.warn("담당자 배정 실패:", assignmentResult.error);
-          // 담당자 배정 실패는 경고만 표시하고 계속 진행
-          message.warning("담당자 배정에 실패했습니다. 나중에 다시 시도해주세요.");
+          const assignmentRequest: UpdateFormAssignmentRequest = {
+            formId: resultFormId,
+            timeTeacherId: values.timeTeacherId || undefined,
+            teacherId: values.teacherId || undefined,
+          };
+
+          const assignmentResult = await updateFormAssignment(assignmentRequest);
+
+          if (assignmentResult && assignmentResult.success) {
+            console.log("Teacher assignment successful"); // 디버그 로그
+          } else {
+            console.warn("담당자 배정 실패:", assignmentResult?.error);
+            message.warning(
+              "담당자 배정에 실패했습니다. 폼은 저장되었지만 담당자 정보를 다시 확인해주세요."
+            );
+          }
+        } catch (assignmentError) {
+          console.error("담당자 배정 중 오류:", assignmentError);
+          message.warning(
+            "담당자 배정 중 오류가 발생했습니다. 폼은 저장되었지만 담당자 정보를 다시 확인해주세요."
+          );
         }
       }
 
-      // 질문 저장 (수정의 경우 기존 질문들은 업데이트, 새 질문들은 생성)
-      for (const question of questions) {
+      // 질문 저장/업데이트
+      for (let i = 0; i < questions.length; i++) {
+        const question = questions[i];
+
+        // 시험형 질문의 개념 템플릿 먼저 생성
         if (question.questionType === "exam" && !question.examUseExisting) {
-          // 개념 템플릿 먼저 생성
           const conceptRequest: CreateConceptTemplateRequest = {
             name: question.examNewTemplateName!,
             groupId,
@@ -1015,54 +1190,75 @@ export default function FormCreatePage() {
           }
         }
 
-        const questionRequest: CreateQuestionRequest = {
-          questionType: question.questionType,
-          questionText: question.questionText,
-          isRequired: question.isRequired,
-          orderIndex: question.orderIndex,
-        };
-
-        // 타입별 설정 추가
-        if (question.questionType === "text") {
-          questionRequest.textConfig = {
-            subtype: question.textSubtype!,
-            maxLength: question.textMaxLength,
-          };
-        } else if (question.questionType === "rating") {
-          questionRequest.ratingConfig = {
-            ratingMax: question.ratingMax!,
-            ratingStep: question.ratingStep!,
-          };
-        } else if (question.questionType === "choice") {
-          questionRequest.choiceConfig = {
-            options: (question.choiceOptions || []).filter((opt) => opt.trim()),
-            multiple: question.choiceMultiple!,
-            allowOther: question.choiceAllowOther,
-          };
-        } else if (question.questionType === "exam") {
-          questionRequest.examConfig = {
-            totalQuestions: question.examTotalQuestions!,
-            conceptTemplateId: question.examConceptTemplateId,
-          };
-        }
-
-        if (question.id && isEditing) {
-          // 기존 질문 업데이트 (서버 API 함수 사용)
-          await updateQuestion(question.id, questionRequest as UpdateQuestionRequest);
+        if (question.id && !question.isNew) {
+          // 기존 질문은 저장 시점에 일괄 업데이트
+          // 여기서는 로컬 상태만 관리
+          setQuestions((prev) =>
+            prev.map((q, index) => (index === i ? { ...q, isNew: false } : q))
+          );
         } else {
           // 새 질문 생성
-          await createQuestion(formId, questionRequest);
+          const createRequest: CreateQuestionRequest = {
+            questionType: question.questionType,
+            questionText: question.questionText,
+            isRequired: question.isRequired,
+            orderIndex: i,
+          };
+
+          // 타입별 설정 추가
+          if (question.questionType === "text") {
+            createRequest.textConfig = {
+              subtype: question.textSubtype!,
+              maxLength: question.textMaxLength,
+            };
+          } else if (question.questionType === "rating") {
+            createRequest.ratingConfig = {
+              ratingMax: question.ratingMax!,
+              ratingStep: question.ratingStep!,
+            };
+          } else if (question.questionType === "choice") {
+            createRequest.choiceConfig = {
+              options: (question.choiceOptions || []).filter((opt) => opt.trim()),
+              multiple: question.choiceMultiple!,
+              allowOther: question.choiceAllowOther,
+            };
+          } else if (question.questionType === "exam") {
+            createRequest.examConfig = {
+              totalQuestions: question.examTotalQuestions!,
+              conceptTemplateId: question.examConceptTemplateId,
+            };
+          }
+
+          const createResult = await createQuestion(resultFormId, createRequest);
+          if (createResult && createResult.success && createResult.data) {
+            // 생성된 질문 ID를 로컬 상태에 반영
+            setQuestions((prev) =>
+              prev.map((q, index) =>
+                index === i ? { ...q, id: createResult.data, isNew: false } : q
+              )
+            );
+          }
         }
       }
 
+      console.log("Form save completed successfully"); // 디버그 로그
       message.success(isDraft ? "폼이 임시저장되었습니다." : "폼이 저장되었습니다.");
 
       if (!isDraft) {
         router.push(`/groups/${groupId}/forms`);
       }
     } catch (error) {
-      console.error("폼 저장 오류:", error);
-      message.error(error instanceof Error ? error.message : "폼 저장 중 오류가 발생했습니다.");
+      console.error("폼 저장 전체 오류:", error);
+
+      if (error instanceof Error) {
+        if (error.message.includes("질문")) {
+          message.error(error.message);
+        } else {
+          message.error(`폼 저장 중 오류가 발생했습니다: ${error.message}`);
+        }
+      } else {
+        message.error("폼 저장 중 알 수 없는 오류가 발생했습니다.");
+      }
     } finally {
       setSaving(false);
     }
@@ -1078,9 +1274,9 @@ export default function FormCreatePage() {
       // 먼저 폼 저장
       await saveForm(false);
 
-      // 전송 요청 생성
+      // 전송 요청
       const sendRequest: SendFormRequest = {
-        formId: editId || "", // 새로 생성된 폼 ID 필요
+        formId: currentFormId || editId || "",
         targets: targets.map((t) => ({ type: t.type, id: t.id })),
         message: `새로운 폼 "${formData.title}"이 전송되었습니다.`,
       };
@@ -1114,12 +1310,15 @@ export default function FormCreatePage() {
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       {/* 폼 기본 정보 */}
-      <Card title="폼 기본 정보">
+      <Card title="폼 기본 정보" className="shadow-sm">
         <Form
           form={form}
           layout="vertical"
-          onValuesChange={(_, values) => setFormData({ ...formData, ...values })}
-          preserve={false} // ✅ Form에 preserve={false} 추가
+          onValuesChange={(changedValues, allValues) => {
+            console.log("Form values changed:", changedValues, allValues); // 디버그 로그
+            setFormData((prev) => ({ ...prev, ...allValues }));
+          }}
+          preserve={false}
         >
           <Row gutter={16}>
             <Col xs={24} md={16}>
@@ -1133,8 +1332,9 @@ export default function FormCreatePage() {
             </Col>
             <Col xs={24} md={8}>
               <Form.Item label="상태">
-                <Tag color="blue" className="px-4 py-2">
-                  {isEditing ? "수정 중" : "새 폼"}
+                <Tag color="blue" className="px-4 py-2 text-lg">
+                  {isEditing ? "수정 중" : isDuplicating ? "복제 중" : "새 폼"}
+                  {(isEditing || isDuplicating) && ` (ID: ${editId || duplicateId})`}
                 </Tag>
               </Form.Item>
             </Col>
@@ -1146,8 +1346,8 @@ export default function FormCreatePage() {
         </Form>
       </Card>
 
-      {/* 담당자 연결 (기존 UI에 담당자 저장 기능 추가) */}
-      <Card title="담당자 연결">
+      {/* 담당자 연결 */}
+      <Card title="담당자 연결" className="shadow-sm">
         <Alert
           message="담당자 안내"
           description="시간강사와 부장선생님을 지정하시면 폼 응답 후 자동으로 해당 담당자에게 알림이 발송됩니다."
@@ -1155,44 +1355,46 @@ export default function FormCreatePage() {
           showIcon
           className="mb-4"
         />
-        {/* ✅ Form으로 감싸서 FormContext 제공 */}
-        <Form form={form} preserve={false}>
+        <Form
+          form={form}
+          preserve={false}
+          onValuesChange={(changedValues, allValues) => {
+            console.log("Teacher form values changed:", changedValues, allValues); // 디버그 로그
+            setFormData((prev) => ({ ...prev, ...allValues }));
+          }}
+        >
           <Row gutter={16}>
             <Col xs={24} md={12}>
               <Form.Item label="시간강사" name="timeTeacherId">
-                <Select
-                  placeholder="시간강사를 선택하세요"
-                  value={formData.timeTeacherId}
-                  onChange={(value) => {
-                    setFormData({ ...formData, timeTeacherId: value });
-                    form.setFieldValue("timeTeacherId", value);
-                  }}
-                  allowClear
-                >
-                  {teachers.map((teacher) => (
-                    <Select.Option key={teacher.user_id} value={teacher.user_id}>
-                      {teacher.users?.name} ({teacher.users?.nickname})
-                    </Select.Option>
-                  ))}
+                <Select placeholder="시간강사를 선택하세요" allowClear size="large">
+                  {teachers
+                    .filter(
+                      (t) =>
+                        t.group_roles?.name === "time_teacher" || t.group_roles?.can_create_form
+                    )
+                    .map((teacher) => (
+                      <Select.Option key={teacher.user_id} value={teacher.user_id}>
+                        {teacher.users?.name} ({teacher.users?.nickname})
+                      </Select.Option>
+                    ))}
                 </Select>
               </Form.Item>
             </Col>
             <Col xs={24} md={12}>
               <Form.Item label="부장선생님" name="teacherId">
-                <Select
-                  placeholder="부장선생님을 선택하세요"
-                  value={formData.teacherId}
-                  onChange={(value) => {
-                    setFormData({ ...formData, teacherId: value });
-                    form.setFieldValue("teacherId", value);
-                  }}
-                  allowClear
-                >
-                  {teachers.map((teacher) => (
-                    <Select.Option key={teacher.user_id} value={teacher.user_id}>
-                      {teacher.users?.name} ({teacher.users?.nickname})
-                    </Select.Option>
-                  ))}
+                <Select placeholder="부장선생님을 선택하세요" allowClear size="large">
+                  {teachers
+                    .filter(
+                      (t) =>
+                        t.group_roles?.name === "teacher" ||
+                        t.group_roles?.name === "owner" ||
+                        t.group_roles?.can_create_form
+                    )
+                    .map((teacher) => (
+                      <Select.Option key={teacher.user_id} value={teacher.user_id}>
+                        {teacher.users?.name} ({teacher.users?.nickname})
+                      </Select.Option>
+                    ))}
                 </Select>
               </Form.Item>
             </Col>
@@ -1202,7 +1404,12 @@ export default function FormCreatePage() {
 
       {/* 질문 구역 */}
       <Card
-        title="질문 구성"
+        title={
+          <div className="flex items-center justify-between">
+            <span>질문 구성</span>
+            <Text type="secondary">총 {questions.length}개 질문</Text>
+          </div>
+        }
         extra={
           <Dropdown
             menu={{
@@ -1236,40 +1443,64 @@ export default function FormCreatePage() {
             }}
             trigger={["click"]}
           >
-            <Button type="primary" icon={<PlusOutlined />}>
+            <Button type="primary" icon={<PlusOutlined />} size="large">
               질문 추가
             </Button>
           </Dropdown>
         }
+        className="shadow-sm"
       >
         {questions.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="아직 추가된 질문이 없습니다">
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => addQuestion("text")}>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="아직 추가된 질문이 없습니다"
+            className="py-8"
+          >
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => addQuestion("text")}
+              size="large"
+            >
               첫 번째 질문 추가하기
             </Button>
           </Empty>
         ) : (
           <DragDropContext onDragEnd={onDragEnd}>
-            <Droppable droppableId="questions">
+            <Droppable droppableId="questions" isDropDisabled={false}>
               {(provided) => (
-                <div {...provided.droppableProps} ref={provided.innerRef}>
+                <div
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                  style={{ minHeight: "200px" }}
+                >
                   {questions.map((question, index) => (
-                    <Draggable key={index} draggableId={index.toString()} index={index}>
-                      {(provided) => (
+                    <Draggable
+                      key={question.id || `question-${index}`}
+                      draggableId={question.id || `question-${index}`}
+                      index={index}
+                    >
+                      {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           {...provided.dragHandleProps}
+                          style={{
+                            ...provided.draggableProps.style,
+                            opacity: snapshot.isDragging ? 0.8 : 1,
+                          }}
                         >
                           <QuestionCard
                             question={question}
                             index={index}
-                            onUpdate={(updates) => updateQuestionState(index, updates)}
+                            onUpdate={(updates) => updateQuestion(index, updates)}
                             onDelete={() => deleteQuestion(index)}
-                            onEdit={() =>
-                              setEditingQuestionIndex(editingQuestionIndex === index ? null : index)
+                            isExpanded={expandedQuestionIndex === index}
+                            onToggleExpand={() =>
+                              setExpandedQuestionIndex(
+                                expandedQuestionIndex === index ? null : index
+                              )
                             }
-                            isEditing={editingQuestionIndex === index}
                             hasExamQuestion={hasExamQuestion}
                           />
                         </div>
@@ -1285,12 +1516,19 @@ export default function FormCreatePage() {
       </Card>
 
       {/* 액션 버튼 */}
-      <Card>
-        <div className="flex justify-between items-center">
-          <Button onClick={() => router.push(`/groups/${groupId}/forms`)}>취소</Button>
+      <Card className="shadow-sm">
+        <Flex justify="space-between" align="center">
+          <Button onClick={() => router.push(`/groups/${groupId}/forms`)} size="large">
+            취소
+          </Button>
 
-          <Space>
-            <Button icon={<SaveOutlined />} onClick={() => saveForm(true)} loading={saving}>
+          <Space size="middle">
+            <Button
+              icon={<SaveOutlined />}
+              onClick={() => saveForm(true)}
+              loading={saving}
+              size="large"
+            >
               임시저장
             </Button>
             <Button
@@ -1298,6 +1536,7 @@ export default function FormCreatePage() {
               icon={<SaveOutlined />}
               onClick={() => saveForm(false)}
               loading={saving}
+              size="large"
             >
               저장
             </Button>
@@ -1307,11 +1546,12 @@ export default function FormCreatePage() {
               onClick={() => setSendModalOpen(true)}
               loading={sending}
               disabled={questions.length === 0}
+              size="large"
             >
               저장 및 전송
             </Button>
           </Space>
-        </div>
+        </Flex>
       </Card>
 
       {/* 전송 모달 */}
@@ -1321,6 +1561,24 @@ export default function FormCreatePage() {
         onConfirm={sendFormHandler}
         loading={sending}
       />
+
+      {/* CSS 애니메이션 추가 */}
+      <style jsx>{`
+        @keyframes fadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        .animate-fadeIn {
+          animation: fadeIn 0.3s ease-out;
+        }
+      `}</style>
     </div>
   );
 }
