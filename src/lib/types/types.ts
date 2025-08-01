@@ -591,6 +591,7 @@ export type Database = {
           id: string
           sent_at: string | null
           status: string
+          supervision_mapping_id: string | null
           title: string
           updated_at: string | null
         }
@@ -602,6 +603,7 @@ export type Database = {
           id?: string
           sent_at?: string | null
           status: string
+          supervision_mapping_id?: string | null
           title: string
           updated_at?: string | null
         }
@@ -613,6 +615,7 @@ export type Database = {
           id?: string
           sent_at?: string | null
           status?: string
+          supervision_mapping_id?: string | null
           title?: string
           updated_at?: string | null
         }
@@ -629,6 +632,13 @@ export type Database = {
             columns: ["group_id"]
             isOneToOne: false
             referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "forms_supervision_mapping_id_fkey"
+            columns: ["supervision_mapping_id"]
+            isOneToOne: false
+            referencedRelation: "supervision_mappings"
             referencedColumns: ["id"]
           },
         ]
