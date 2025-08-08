@@ -1910,3 +1910,132 @@ export const getAllAvailableTags = async (
     return { success: false, error: "태그 조회 중 오류가 발생했습니다." };
   }
 };
+
+/**
+ * 사용자가 속한 클래스 목록 조회 (폼 응답용)
+ * @param userId 사용자 ID
+ * @param groupId 그룹 ID
+ * @returns 사용자가 속한 클래스 목록
+ */
+export const getUserClassesForFormResponse = async (
+  userId: string,
+  groupId: string
+): Promise<ApiResponse<ClassWithDetails[]>> => {
+  try {
+    // 사용자가 속한 클래스 ID들 조회
+    const { data: memberships, error: membershipError } = await supabaseAdmin
+      .from("class_members")
+      .select("class_id")
+      .eq("user_id", userId);
+
+    if (membershipError) throw membershipError;
+
+    if (!memberships || memberships.length === 0) {
+      return { success: true, data: [] };
+    }
+
+    const classIds = memberships.map((m) => m.class_id).filter((id): id is string => id !== null);
+
+    if (classIds.length === 0) {
+      return { success: true, data: [] };
+    }
+
+    // 해당 그룹의 클래스들만 필터링해서 조회
+    const { data: classes, error: classError } = await supabaseAdmin
+      .from("classes")
+      .select(
+        `
+        *,
+        groups (name, description)
+      `
+      )
+      .in("id", classIds)
+      .eq("group_id", groupId)
+      .order("name", { ascending: true });
+
+    if (classError) throw classError;
+
+    // 각 클래스의 구성원 수와 태그 조회
+    const classesWithDetails: ClassWithDetails[] = await Promise.all(
+      (classes || []).map(async (classItem) => {
+        const [memberCountResult, tagsResult] = await Promise.all([
+          supabaseAdmin
+            .from("class_members")
+            .select("*", { count: "exact", head: true })
+            .eq("class_id", classItem.id),
+          supabaseAdmin
+            .from("class_tag_links")
+            .select(
+              `
+              class_tags (*)
+            `
+            )
+            .eq("class_id", classItem.id),
+        ]);
+
+        const tags = (tagsResult.data || []).map((link: any) => link.class_tags).filter(Boolean);
+
+        return {
+          ...classItem,
+          memberCount: memberCountResult.count || 0,
+          groups: classItem.groups || null,
+          class_tags: tags || [],
+        };
+      })
+    );
+
+    return { success: true, data: classesWithDetails };
+  } catch (error) {
+    console.error("Error getting user classes for form response:", error);
+    return { success: false, error: "사용자 클래스 조회 중 오류가 발생했습니다." };
+  }
+};
+
+/**
+ * 폼 타겟에 사용자가 포함되는지 확인
+ * @param formId 폼 ID
+ * @param userId 사용자 ID
+ * @returns 사용자가 폼 타겟에 포함되는지 여부
+ */
+export const canUserRespondToForm = async (
+  formId: string,
+  userId: string
+): Promise<ApiResponse<boolean>> => {
+  try {
+    const { data: targets, error } = await supabaseAdmin
+      .from("form_targets")
+      .select("target_type, target_id")
+      .eq("form_id", formId);
+
+    if (error) throw error;
+
+    if (!targets || targets.length === 0) {
+      return { success: true, data: false };
+    }
+
+    for (const target of targets) {
+      if (target.target_type === "individual" && target.target_id === userId) {
+        return { success: true, data: true };
+      }
+
+      if (target.target_type === "class") {
+        // 해당 클래스의 멤버인지 확인
+        const { data: membership } = await supabaseAdmin
+          .from("class_members")
+          .select("id")
+          .eq("class_id", target.target_id)
+          .eq("user_id", userId)
+          .single();
+
+        if (membership) {
+          return { success: true, data: true };
+        }
+      }
+    }
+
+    return { success: true, data: false };
+  } catch (error) {
+    console.error("Error checking user form permission:", error);
+    return { success: false, error: "폼 응답 권한 확인 중 오류가 발생했습니다." };
+  }
+};

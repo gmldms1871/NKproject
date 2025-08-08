@@ -1734,6 +1734,8 @@ export async function getConceptTemplates(
 
 // ===== 폼 응답 =====
 
+// forms.ts에서 submitFormResponse 함수 개선
+
 export async function submitFormResponse(
   request: SubmitFormResponseRequest
 ): Promise<ApiResponse<string>> {
@@ -1749,12 +1751,37 @@ export async function submitFormResponse(
       return { success: false, error: "응답할 수 없는 폼입니다." };
     }
 
+    // 학생 이름 조회
+    const { data: student, error: studentError } = await supabaseAdmin
+      .from("users")
+      .select("name")
+      .eq("id", request.studentId)
+      .single();
+
+    if (studentError) throw studentError;
+
+    // 클래스 이름 조회 (classId가 있는 경우만)
+    let className: string | null = null;
+    if (request.classId) {
+      const { data: classData, error: classError } = await supabaseAdmin
+        .from("classes")
+        .select("name")
+        .eq("id", request.classId)
+        .single();
+
+      if (!classError && classData) {
+        className = classData.name;
+      }
+    }
+
     const { data: formResponse, error: responseError } = await supabaseAdmin
       .from("form_responses")
       .insert({
         form_id: request.formId,
         student_id: request.studentId,
+        student_name: student.name, // ✅ 실제 학생 이름 저장
         class_id: request.classId,
+        class_name: className, // ✅ 실제 클래스 이름 저장
         status: "completed",
         submitted_at: new Date().toISOString(),
         responder_type: "student",
@@ -1781,12 +1808,13 @@ export async function submitFormResponse(
 
     if (questionResponsesError) throw questionResponsesError;
 
+    // ✅ reports 테이블에 실제 학생/클래스 이름으로 업데이트
     const { error: reportError } = await supabaseAdmin
       .from("reports")
       .update({
         form_response_id: formResponse.id,
-        student_name: request.studentId || "",
-        class_name: request.classId || "",
+        student_name: student.name, // ✅ 실제 학생 이름 저장
+        class_name: className || "", // ✅ 실제 클래스 이름 저장
         stage: 1,
         draft_status: "waiting_for_time_teacher",
       })
@@ -1891,7 +1919,7 @@ export async function getFormStatistics(groupId: string): Promise<ApiResponse<Fo
     const draftForms = forms?.filter((f) => f.status === "draft").length || 0;
     const closedForms = forms?.filter((f) => f.status === "closed").length || 0;
     const totalResponses = responses?.length || 0;
-    const completedResponses = responses?.filter((r) => r.status === "completed").length || 0;
+    const completedResponses = responses?.filter((r) => r.status === "submitted").length || 0;
 
     const responsesByDate: { date: string; count: number }[] = [];
 

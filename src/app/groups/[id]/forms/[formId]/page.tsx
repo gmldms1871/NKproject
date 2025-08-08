@@ -48,6 +48,13 @@ import {
   submitFormResponse,
   SubmitFormResponseRequest,
 } from "@/lib/forms";
+import {
+  getAllClasses,
+  ClassWithDetails,
+  getUserClassesForFormResponse,
+  canUserRespondToForm,
+} from "@/lib/classes";
+import { supabaseAdmin } from "@/lib/supabase";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -71,6 +78,9 @@ export default function FormDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [responses, setResponses] = useState<Record<string, any>>({});
+  const [userClasses, setUserClasses] = useState<ClassWithDetails[]>([]);
+  const [selectedClass, setSelectedClass] = useState<string | undefined>(undefined);
+  const [classesLoading, setClassesLoading] = useState(false);
 
   // 폼 데이터 로드
   const loadFormData = useCallback(async () => {
@@ -95,6 +105,116 @@ export default function FormDetailPage() {
     }
   }, [formId]);
 
+  // 사용자가 속한 클래스 조회 (응답 모드에서만)
+  const loadUserClasses = useCallback(async () => {
+    if (!user || !groupId || !isRespondMode) return;
+
+    try {
+      setClassesLoading(true);
+
+      // ✅ 먼저 사용자가 이 폼에 응답할 권한이 있는지 확인
+      const permissionResult = await canUserRespondToForm(formId, user.id);
+
+      if (!permissionResult.success || !permissionResult.data) {
+        setError("이 폼에 응답할 권한이 없습니다.");
+        return;
+      }
+
+      // ✅ 개선된 함수를 사용해서 사용자가 속한 클래스들 조회
+      const classesResult = await getUserClassesForFormResponse(user.id, groupId);
+
+      if (classesResult.success && classesResult.data) {
+        setUserClasses(classesResult.data);
+
+        // 클래스가 하나뿐이면 자동 선택
+        if (classesResult.data.length === 1) {
+          setSelectedClass(classesResult.data[0].id);
+        }
+      } else {
+        console.error("사용자 클래스 조회 실패:", classesResult.error);
+        // 클래스가 없어도 개인 타겟일 수 있으므로 에러로 처리하지 않음
+        setUserClasses([]);
+      }
+    } catch (error) {
+      console.error("사용자 클래스 조회 오류:", error);
+      setUserClasses([]);
+    } finally {
+      setClassesLoading(false);
+    }
+  }, [user, groupId, isRespondMode, formId]);
+
+  const renderClassSelection = () => {
+    if (!isRespondMode) return null;
+
+    if (classesLoading) {
+      return (
+        <Card>
+          <div className="flex items-center justify-center py-4">
+            <Spin />
+            <Text className="ml-2">클래스 정보를 불러오는 중...</Text>
+          </div>
+        </Card>
+      );
+    }
+
+    // 클래스가 없는 경우
+    if (userClasses.length === 0) {
+      return (
+        <Card>
+          <div className="flex items-center space-x-2">
+            <CheckOutlined className="text-green-500" />
+            <Text>개별 대상자로 설정되었습니다.</Text>
+          </div>
+        </Card>
+      );
+    }
+
+    // 클래스가 하나인 경우
+    if (userClasses.length === 1) {
+      return (
+        <Card>
+          <div className="flex items-center space-x-2">
+            <CheckOutlined className="text-green-500" />
+            <Text>
+              <Text strong>{userClasses[0].name}</Text> 클래스로 자동 선택되었습니다.
+            </Text>
+          </div>
+        </Card>
+      );
+    }
+
+    // 클래스가 여러 개인 경우
+    return (
+      <Card>
+        <Title level={4}>클래스 선택</Title>
+        <Text type="secondary" className="block mb-4">
+          소속된 클래스를 선택해주세요.
+        </Text>
+
+        <RadioGroup
+          value={selectedClass}
+          onChange={(e) => setSelectedClass(e.target.value)}
+          className="w-full"
+        >
+          <div className="space-y-2">
+            {userClasses.map((classItem) => (
+              <Radio key={classItem.id} value={classItem.id} className="block">
+                <div className="ml-2">
+                  <Text strong>{classItem.name}</Text>
+                  {classItem.description && (
+                    <Text type="secondary" className="block text-sm">
+                      {classItem.description}
+                    </Text>
+                  )}
+                </div>
+              </Radio>
+            ))}
+          </div>
+        </RadioGroup>
+      </Card>
+    );
+  };
+
   // 페이지 헤더 설정
   useEffect(() => {
     setPageHeader({
@@ -108,6 +228,18 @@ export default function FormDetailPage() {
     return () => setPageHeader(null);
   }, [setPageHeader, groupId, isRespondMode]);
 
+  // 폼 데이터 로드
+  useEffect(() => {
+    loadFormData();
+  }, [loadFormData]);
+
+  // 사용자 클래스 로드 (응답 모드에서만)
+  useEffect(() => {
+    if (form && isRespondMode) {
+      loadUserClasses();
+    }
+  }, [form, isRespondMode, loadUserClasses]);
+
   // 응답 데이터 업데이트
   const updateResponse = (questionId: string, value: any) => {
     setResponses((prev) => ({
@@ -117,42 +249,78 @@ export default function FormDetailPage() {
   };
 
   // 응답 제출
+  // 폼 응답 제출 함수 개선 (page.tsx의 handleSubmitResponse 부분)
+
   const handleSubmitResponse = async () => {
     if (!form || !user) return;
 
     try {
       setSubmitting(true);
 
+      // ✅ 응답 모드에서는 클래스 선택이 필수 (클래스가 여러 개인 경우)
+      if (isRespondMode && userClasses.length > 1 && !selectedClass) {
+        message.warning("클래스를 선택해주세요.");
+        return;
+      }
+
       // 필수 질문 체크
       const requiredQuestions = form.questions.filter((q) => q.is_required);
-      const missingRequired = requiredQuestions.filter((q) => !responses[q.id]);
+      const missingRequired = requiredQuestions.filter((q) => {
+        const response = responses[q.id];
+
+        if (q.question_type === "exam") {
+          // 시험형은 배열이어야 하고, undefined가 아니면 유효 (빈 배열도 유효 - 모든 문제를 맞춘 경우)
+          return response === undefined || response === null;
+        } else {
+          // 다른 타입은 기존과 동일
+          return !response || (Array.isArray(response) && response.length === 0);
+        }
+      });
 
       if (missingRequired.length > 0) {
         message.warning("필수 질문에 모두 응답해주세요.");
         return;
       }
 
+      // ✅ 선택된 클래스 정보 조회 - 클래스가 하나뿐이면 자동으로 그것을 사용
+      const selectedClassInfo = selectedClass
+        ? userClasses.find((cls) => cls.id === selectedClass)
+        : userClasses.length === 1
+        ? userClasses[0]
+        : undefined;
+
       // 응답 데이터 변환
       const submitResponses = form.questions
-        .map((question) => ({
-          questionId: question.id,
-          textResponse: question.question_type === "text" ? responses[question.id] : undefined,
-          numberResponse: question.question_type === "rating" ? responses[question.id] : undefined,
-          ratingResponse: question.question_type === "rating" ? responses[question.id] : undefined,
-          examResponse: question.question_type === "exam" ? responses[question.id] : undefined,
-        }))
-        .filter(
-          (response) =>
+        .map((question) => {
+          const response: any = {
+            questionId: question.id,
+          };
+
+          if (question.question_type === "text") {
+            response.textResponse = responses[question.id];
+          } else if (question.question_type === "rating") {
+            response.numberResponse = responses[question.id];
+            response.ratingResponse = responses[question.id];
+          } else if (question.question_type === "exam") {
+            // 시험 응답은 배열 형태로 저장
+            response.examResponse = responses[question.id] || [];
+          }
+
+          return response;
+        })
+        .filter((response) => {
+          return (
             response.textResponse !== undefined ||
             response.numberResponse !== undefined ||
             response.ratingResponse !== undefined ||
-            response.examResponse !== undefined
-        );
+            (response.examResponse !== undefined && Array.isArray(response.examResponse))
+          );
+        });
 
       const submitRequest: SubmitFormResponseRequest = {
         formId: form.id,
         studentId: user.id,
-        classId: undefined, // TODO: 사용자의 클래스 정보 가져오기
+        classId: selectedClassInfo?.id, // ✅ 선택된 클래스 ID 전달
         responses: submitResponses,
       };
 
@@ -322,6 +490,7 @@ export default function FormDetailPage() {
       case "exam":
         const totalQuestions = question.examDetails?.total_questions || 0;
         const conceptTemplate = question.examDetails?.conceptTemplate;
+        const wrongQuestions = responses[id] || [];
 
         return (
           <Card key={id} className="mb-4">
@@ -353,23 +522,34 @@ export default function FormDetailPage() {
               </div>
             )}
 
-            <Alert
-              message="시험 응답"
-              description={
-                <div>
-                  <p>{totalQuestions}개의 시험 문제에 대한 응답을 입력해주세요.</p>
-                  <TextArea
-                    placeholder="시험 응답을 입력해주세요..."
-                    rows={6}
-                    value={responses[id] || ""}
-                    onChange={(e) => updateResponse(id, e.target.value)}
-                    className="mt-2"
-                  />
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Text strong>틀린 문제 번호를 체크해주세요:</Text>
+                <Text type="secondary">
+                  틀린 문제: {wrongQuestions.length}개 / 총 {totalQuestions}문제
+                </Text>
+              </div>
+
+              <CheckboxGroup
+                value={wrongQuestions}
+                onChange={(checkedValues) => updateResponse(id, checkedValues)}
+              >
+                <div className="grid grid-cols-5 gap-4">
+                  {Array.from({ length: totalQuestions }, (_, index) => {
+                    const questionNum = index + 1;
+                    return (
+                      <div key={questionNum} className="flex items-center">
+                        <Checkbox value={questionNum}>{questionNum}번</Checkbox>
+                      </div>
+                    );
+                  })}
                 </div>
-              }
-              type="info"
-              showIcon
-            />
+              </CheckboxGroup>
+
+              <div className="mt-4 p-3 bg-orange-50 rounded-lg">
+                <Text type="secondary">💡 틀린 문제만 체크하고, 맞은 문제는 체크하지 마세요.</Text>
+              </div>
+            </div>
           </Card>
         );
 
@@ -543,12 +723,32 @@ export default function FormDetailPage() {
               </div>
             )}
 
-            <Alert
-              message="시험 문제 미리보기"
-              description={`이 폼에서는 ${totalQuestions}개의 시험 문제가 출제됩니다. 실제 문제는 응답 시 자동으로 생성됩니다.`}
-              type="info"
-              showIcon
-            />
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Text strong>틀린 문제 번호 체크 (미리보기):</Text>
+                <Text type="secondary">총 {totalQuestions}문제</Text>
+              </div>
+
+              <CheckboxGroup disabled>
+                <div className="grid grid-cols-5 gap-4">
+                  {Array.from({ length: totalQuestions }, (_, index) => {
+                    const questionNum = index + 1;
+                    return (
+                      <div key={questionNum} className="flex items-center">
+                        <Checkbox value={questionNum}>{questionNum}번</Checkbox>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CheckboxGroup>
+
+              <Alert
+                message="시험 응답 방식"
+                description="실제 응답 시에는 틀린 문제 번호만 체크하면 됩니다. 맞은 문제는 체크하지 않습니다."
+                type="info"
+                showIcon
+              />
+            </div>
           </Card>
         );
 
@@ -706,6 +906,53 @@ export default function FormDetailPage() {
         />
       )}
 
+      {/* 클래스 선택 (응답 모드에서 클래스가 여러 개인 경우) */}
+      {isRespondMode && userClasses.length > 1 && (
+        <Card>
+          <Title level={4}>클래스 선택</Title>
+          <Text type="secondary" className="block mb-4">
+            소속된 클래스를 선택해주세요.
+          </Text>
+
+          {classesLoading ? (
+            <Spin />
+          ) : (
+            <RadioGroup
+              value={selectedClass}
+              onChange={(e) => setSelectedClass(e.target.value)}
+              className="w-full"
+            >
+              <div className="space-y-2">
+                {userClasses.map((classItem) => (
+                  <Radio key={classItem.id} value={classItem.id} className="block">
+                    <div className="ml-2">
+                      <Text strong>{classItem.name}</Text>
+                      {classItem.description && (
+                        <Text type="secondary" className="block text-sm">
+                          {classItem.description}
+                        </Text>
+                      )}
+                    </div>
+                  </Radio>
+                ))}
+              </div>
+            </RadioGroup>
+          )}
+        </Card>
+      )}
+
+      {/* 클래스 자동 선택 안내 (클래스가 하나인 경우) */}
+      {isRespondMode && userClasses.length === 1 && (
+        <Card>
+          <div className="flex items-center space-x-2">
+            <CheckOutlined className="text-green-500" />
+            <Text>
+              <Text strong>{userClasses[0].name}</Text> 클래스로 자동 선택되었습니다.
+            </Text>
+          </div>
+        </Card>
+      )}
+
       {/* 질문 목록 */}
       <div className="space-y-0">
         <Title level={3} className="mb-4">
@@ -716,16 +963,16 @@ export default function FormDetailPage() {
           <div>
             {form.questions
               .sort((a, b) => a.order_index - b.order_index)
-              .filter((question) => question && question.id) // ✅ 유효한 질문만 필터링
+              .filter((question) => question && question.id) // 유효한 질문만 필터링
               .map((question) => {
                 try {
-                  // ✅ 에러 처리와 함께 명시적 반환
+                  // 에러 처리와 함께 명시적 반환
                   return isRespondMode
                     ? renderRespondQuestion(question)
                     : renderPreviewQuestion(question);
                 } catch (error) {
                   console.error("Question render error:", error);
-                  // ✅ 에러 발생 시 대체 UI 반환
+                  // 에러 발생 시 대체 UI 반환
                   return (
                     <Card key={question.id || Math.random()} className="mb-4">
                       <Alert
