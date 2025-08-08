@@ -19,11 +19,7 @@ import {
   TeamOutlined,
   ExclamationCircleOutlined,
 } from "@ant-design/icons";
-import {
-  sendForm,
-  SendFormRequest,
-  updateReportsWithSupervision, // 🔧 supervision 정보 업데이트 함수
-} from "@/lib/forms";
+import { sendForm, SendFormRequest, updateReportsWithSupervision } from "@/lib/forms";
 import { getGroupMembers, GroupMemberWithDetails } from "@/lib/groups";
 import { getAllClasses, ClassWithDetails } from "@/lib/classes";
 

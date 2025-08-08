@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "./supabase";
 import { Database } from "./types/types";
 import { createNotification } from "./notifications";
+import { group } from "console";
 
 // 데이터베이스 타입 import
 type Form = Database["public"]["Tables"]["forms"]["Row"];
@@ -53,6 +54,16 @@ type ChoiceOptionInsert = Database["public"]["Tables"]["choice_options"]["Insert
 type User = Database["public"]["Tables"]["users"]["Row"];
 type Class = Database["public"]["Tables"]["classes"]["Row"];
 type NotificationInsert = Database["public"]["Tables"]["notifications"]["Insert"];
+
+type ExamConceptTemplateItemWithRelations = {
+  id: string;
+  template_id: string | null;
+  concept_text: string;
+  concept_description: string;
+  order_index: number;
+  created_at: string | null;
+  updated_at: string | null;
+};
 
 // API 응답 타입 정의
 export interface ApiResponse<T = unknown> {
@@ -223,6 +234,44 @@ export interface DuplicateConceptTemplateRequest {
 
 // ===== 응답 타입 정의 =====
 
+interface FormQuestionWithJoins {
+  id: string;
+  question_type: string;
+  question_text: string;
+  is_required: boolean | null;
+  order_index: number;
+  form_id: string | null;
+  group_roles_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  exam_questions?: {
+    concept_template_id: string | null;
+    total_questions: number;
+    exam_concept_templates?: {
+      id: string;
+      name: string;
+      group_id: string | null;
+      creator_id: string | null;
+      concept_count: number | null;
+      status: string | null;
+      created_at: string | null;
+      updated_at: string | null;
+      exam_concept_template_items?: Array<{
+        id: string;
+        template_id: string | null;
+        concept_text: string;
+        concept_description: string;
+        order_index: number;
+        created_at: string | null;
+        updated_at: string | null;
+      }>;
+    };
+  };
+  rating_questions?: RatingQuestion;
+  choice_questions?: ChoiceQuestion;
+  choice_options?: ChoiceOption[];
+}
+
 export interface SupervisionInfo {
   supervisionId?: string;
   timeTeacher?: {
@@ -371,7 +420,7 @@ export interface ConceptTemplateItem {
 /**
  * 질문 데이터 처리 헬퍼 함수
  */
-function processQuestions(questions: any[]): QuestionWithDetails[] {
+function processQuestions(questions: FormQuestionWithJoins[]): QuestionWithDetails[] {
   if (!questions) return [];
 
   return questions
@@ -406,7 +455,7 @@ function processQuestions(questions: any[]): QuestionWithDetails[] {
                 updated_at: examQuestion.exam_concept_templates.updated_at,
                 conceptItems: (
                   examQuestion.exam_concept_templates.exam_concept_template_items || []
-                ).map((item: any) => ({
+                ).map((item: ExamConceptTemplateItemWithRelations) => ({
                   id: item.id,
                   template_id: item.template_id,
                   concept_text: item.concept_text,
@@ -566,7 +615,7 @@ export async function getFormDetails(formId: string): Promise<ApiResponse<FormWi
       return { success: false, error: "폼을 찾을 수 없습니다." };
     }
 
-    const questionsWithDetails = processQuestions(form.form_questions);
+    const questionsWithDetails = processQuestions(form.form_questions as never);
 
     const targetsWithInfo: FormTargetWithDetails[] = (form.form_targets || []).map((target) => ({
       id: target.id,
@@ -665,7 +714,7 @@ export async function getFormDetailsWithSupervision(
       return { success: false, error: "폼을 찾을 수 없습니다." };
     }
 
-    const questionsWithDetails = processQuestions(form.form_questions);
+    const questionsWithDetails = processQuestions(form.form_questions as never);
 
     const targetsWithInfo: FormTargetWithDetails[] = (form.form_targets || []).map((target) => ({
       id: target.id,
@@ -907,7 +956,7 @@ export async function createForm(request: CreateFormRequest): Promise<ApiRespons
         type: "form_created",
         title: "새 폼이 생성되었습니다",
         content: `폼 "${request.title}"이 생성되었습니다.`,
-        action_url: `/forms/${form.id}`,
+        action_url: `/groups/${request.groupId}/forms/${form.id}`,
         related_id: form.id,
         is_read: false,
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1071,10 +1120,28 @@ export async function saveFormAsDraft(
 /**
  * 폼 전송 (supervision 정보 포함)
  */
+/**
+ * 폼 전송 (supervision 정보 포함) - groupId 포함 수정
+ */
 export async function sendFormWithSupervision(
   request: SendFormRequest
 ): Promise<ApiResponse<boolean>> {
   try {
+    // ✅ 1단계: 폼 정보 조회 시 group_id도 함께 가져오기
+    const { data: formInfo, error: formInfoError } = await supabaseAdmin
+      .from("forms")
+      .select("group_id, supervision_mapping_id") // ✅ group_id 추가
+      .eq("id", request.formId)
+      .single();
+
+    if (formInfoError) throw formInfoError;
+    if (!formInfo) {
+      return { success: false, error: "폼을 찾을 수 없습니다." };
+    }
+
+    const groupId = formInfo.group_id; // ✅ groupId 추출
+
+    // 폼 상태 업데이트
     const { error: updateError } = await supabaseAdmin
       .from("forms")
       .update({
@@ -1085,6 +1152,7 @@ export async function sendFormWithSupervision(
 
     if (updateError) throw updateError;
 
+    // 타겟 정보 저장
     const targetInserts: FormTargetInsert[] = request.targets.map((target) => ({
       form_id: request.formId,
       target_type: target.type,
@@ -1094,7 +1162,7 @@ export async function sendFormWithSupervision(
     const { error: targetError } = await supabaseAdmin.from("form_targets").insert(targetInserts);
     if (targetError) throw targetError;
 
-    // 각 타겟에게 알림 발송
+    // ✅ 2단계: 각 타겟에게 알림 발송 (groupId 포함)
     for (const target of request.targets) {
       if (target.type === "individual") {
         await createNotification({
@@ -1103,7 +1171,7 @@ export async function sendFormWithSupervision(
           type: "form_received",
           title: "새 폼이 도착했습니다",
           content: request.message || "새로운 폼을 작성해주세요.",
-          action_url: `/forms/${request.formId}/respond`,
+          action_url: `/groups/${groupId}/forms/${request.formId}?mode=respond`, // ✅ groupId 포함
           related_id: request.formId,
           is_read: false,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1123,7 +1191,7 @@ export async function sendFormWithSupervision(
                 type: "form_received",
                 title: "새 폼이 도착했습니다",
                 content: request.message || "새로운 폼을 작성해주세요.",
-                action_url: `/forms/${request.formId}/respond`,
+                action_url: `/groups/${groupId}/forms/${request.formId}?mode=respond`, // ✅ groupId 포함
                 related_id: request.formId,
                 is_read: false,
                 expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -1134,25 +1202,19 @@ export async function sendFormWithSupervision(
       }
     }
 
-    // reports에 supervision 정보 반영
-    const { data: form } = await supabaseAdmin
-      .from("forms")
-      .select("supervision_mapping_id")
-      .eq("id", request.formId)
-      .single();
-
-    if (form?.supervision_mapping_id) {
+    // ✅ 3단계: reports에 supervision 정보 반영
+    if (formInfo.supervision_mapping_id) {
       const { data: supervision } = await supabaseAdmin
         .from("supervision_mappings")
         .select("time_teacher_id, teacher_id")
-        .eq("id", form.supervision_mapping_id)
+        .eq("id", formInfo.supervision_mapping_id)
         .single();
 
       if (supervision) {
         await supabaseAdmin
           .from("reports")
           .update({
-            supervision_id: form.supervision_mapping_id,
+            supervision_id: formInfo.supervision_mapping_id,
             time_teacher_id: supervision.time_teacher_id,
             teacher_id: supervision.teacher_id,
           })
@@ -1171,7 +1233,84 @@ export async function sendFormWithSupervision(
  * 폼 전송 (기본)
  */
 export async function sendForm(request: SendFormRequest): Promise<ApiResponse<boolean>> {
-  return sendFormWithSupervision(request);
+  try {
+    // 폼의 그룹 정보 조회
+    const { data: formInfo, error: formInfoError } = await supabaseAdmin
+      .from("forms")
+      .select("group_id")
+      .eq("id", request.formId)
+      .single();
+
+    if (formInfoError) throw formInfoError;
+    const groupId = formInfo.group_id;
+
+    // 폼 상태 업데이트
+    const { error: updateError } = await supabaseAdmin
+      .from("forms")
+      .update({
+        status: "save", // "active" → "save"로 변경
+        sent_at: new Date().toISOString(),
+      })
+      .eq("id", request.formId);
+
+    if (updateError) throw updateError;
+
+    // 타겟 정보 저장
+    const targetInserts = request.targets.map((target) => ({
+      form_id: request.formId,
+      target_type: target.type,
+      target_id: target.id,
+    }));
+
+    const { error: targetError } = await supabaseAdmin.from("form_targets").insert(targetInserts);
+    if (targetError) throw targetError;
+
+    // 각 타겟에게 알림 발송
+    for (const target of request.targets) {
+      if (target.type === "individual") {
+        await createNotification({
+          target_id: target.id,
+          creator_id: null,
+          type: "form_received",
+          title: "새 폼이 도착했습니다",
+          content: request.message || "새로운 폼을 작성해주세요.",
+          action_url: `/groups/${groupId}/forms/${request.formId}?mode=respond`,
+          related_id: request.formId,
+          is_read: false,
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      } else if (target.type === "class") {
+        // 🔧 클래스 멤버 조회 및 알림 발송
+        const { data: classMembers } = await supabaseAdmin
+          .from("class_members")
+          .select("user_id")
+          .eq("class_id", target.id);
+
+        if (classMembers) {
+          for (const member of classMembers) {
+            if (member.user_id) {
+              await createNotification({
+                target_id: member.user_id,
+                creator_id: null,
+                type: "form_received",
+                title: "새 폼이 도착했습니다",
+                content: request.message || "새로운 폼을 작성해주세요.",
+                action_url: `/groups/${groupId}/forms/${request.formId}?mode=respond`,
+                related_id: request.formId,
+                is_read: false,
+                expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return { success: true, data: true };
+  } catch (error) {
+    console.error("Error sending form:", error);
+    return { success: false, error: "폼 전송 중 오류가 발생했습니다." };
+  }
 }
 
 /**
@@ -1848,5 +1987,50 @@ export async function updateFormAssignment(
   } catch (error) {
     console.error("Error updating form assignment:", error);
     return { success: false, error: "담당자 배정 업데이트 중 오류가 발생했습니다." };
+  }
+}
+
+export async function updateReportsWithSupervision(formId: string): Promise<ApiResponse<boolean>> {
+  try {
+    // 폼의 supervision 정보 조회
+    const { data: form } = await supabaseAdmin
+      .from("forms")
+      .select("description, supervision_mapping_id")
+      .eq("id", formId)
+      .single();
+
+    if (!form) {
+      return { success: false, error: "폼을 찾을 수 없습니다." };
+    }
+
+    // supervision_mapping_id가 있는 경우 reports 테이블 업데이트
+    if (form.supervision_mapping_id) {
+      const { data: supervision } = await supabaseAdmin
+        .from("supervision_mappings")
+        .select("time_teacher_id, teacher_id")
+        .eq("id", form.supervision_mapping_id)
+        .single();
+
+      if (supervision) {
+        const { error } = await supabaseAdmin
+          .from("reports")
+          .update({
+            supervision_id: form.supervision_mapping_id,
+            time_teacher_id: supervision.time_teacher_id,
+            teacher_id: supervision.teacher_id,
+          })
+          .eq("form_id", formId);
+
+        if (error) {
+          console.error("Error updating reports with supervision:", error);
+          return { success: false, error: "리포트 담당자 정보 업데이트 실패" };
+        }
+      }
+    }
+
+    return { success: true, data: true };
+  } catch (error) {
+    console.error("Error updating reports with supervision:", error);
+    return { success: false, error: "리포트 담당자 정보 업데이트 중 오류가 발생했습니다." };
   }
 }
