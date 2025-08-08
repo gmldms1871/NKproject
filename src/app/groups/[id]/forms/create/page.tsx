@@ -21,11 +21,10 @@ import {
   Badge,
   Empty,
   Spin,
-  App,
+  message,
   Dropdown,
   Tooltip,
   Alert,
-  Flex,
   Popconfirm,
 } from "antd";
 import {
@@ -58,13 +57,14 @@ import {
   createForm,
   updateForm,
   getFormDetails,
+  getFormDetailsWithSupervision,
   duplicateForm,
   createQuestion,
-  updateQuestion as updateFormQuestion, // 🔧 다른 이름으로 import
-  reorderQuestions,
-  sendForm,
+  updateQuestion as updateFormQuestion,
+  reorderFormQuestions,
+  sendFormWithSupervision,
   saveFormAsDraft,
-  saveFormSupervisionMapping, // 🔧 supervision mapping 함수 추가
+  saveFormSupervisionMapping,
   FormWithDetails,
   QuestionWithDetails,
   CreateFormRequest,
@@ -76,10 +76,11 @@ import {
   createConceptTemplate,
   CreateConceptTemplateRequest,
   ConceptTemplateWithItems,
-  getConceptTemplates, // 🔧 개념템플릿 조회 함수 추가
+  getConceptTemplates,
 } from "@/lib/forms";
 import { getGroupMembers, GroupMemberWithDetails } from "@/lib/groups";
 import { getAllClasses, ClassWithDetails } from "@/lib/classes";
+import { createReport } from "@/lib/reports";
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -115,7 +116,6 @@ export default function FormCreatePage() {
   const params = useParams();
   const searchParams = useSearchParams();
   const { user } = useAuth();
-  const { message, modal } = App.useApp();
   const { setPageHeader } = usePageHeader();
 
   const groupId = params.id as string;
@@ -142,39 +142,30 @@ export default function FormCreatePage() {
   const [expandedQuestionIndex, setExpandedQuestionIndex] = useState<number | null>(null);
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const [teachers, setTeachers] = useState<GroupMemberWithDetails[]>([]);
-  const [conceptTemplates, setConceptTemplates] = useState<ConceptTemplateWithItems[]>([]); // 🔧 개념템플릿 상태 추가
+  const [conceptTemplates, setConceptTemplates] = useState<ConceptTemplateWithItems[]>([]);
   const [currentFormId, setCurrentFormId] = useState<string | null>(null);
+  const [classes, setClasses] = useState<ClassWithDetails[]>([]);
+  const [sendTargets, setSendTargets] = useState<
+    Array<{ type: "class" | "individual"; id: string }>
+  >([]);
 
-  // 🔧 DragDropContext를 위한 reorder 함수
-  const reorderQuestions = (
-    list: QuestionFormData[],
-    startIndex: number,
-    endIndex: number
-  ): QuestionFormData[] => {
-    const result = Array.from(list);
-    const [removed] = result.splice(startIndex, 1);
-    result.splice(endIndex, 0, removed);
-
-    // orderIndex 재정렬
-    return result.map((item, index) => ({
-      ...item,
-      orderIndex: index,
-    }));
-  };
-
-  // 🔧 드래그 앤 드롭 핸들러
+  // 드래그 앤 드롭 핸들러
   const onDragEnd = (result: DropResult) => {
     if (!result.destination) {
       return;
     }
 
-    const reorderedQuestions = reorderQuestions(
-      questions,
-      result.source.index,
-      result.destination.index
-    );
+    const reorderedQuestions = Array.from(questions);
+    const [removed] = reorderedQuestions.splice(result.source.index, 1);
+    reorderedQuestions.splice(result.destination.index, 0, removed);
 
-    setQuestions(reorderedQuestions);
+    // orderIndex 재정렬
+    const updatedQuestions = reorderedQuestions.map((item, index) => ({
+      ...item,
+      orderIndex: index,
+    }));
+
+    setQuestions(updatedQuestions);
   };
 
   // 페이지 헤더 설정
@@ -195,7 +186,7 @@ export default function FormCreatePage() {
     return () => setPageHeader(null);
   }, [setPageHeader, groupId, isEditing, isDuplicating]);
 
-  // 🔧 개념템플릿 로드
+  // 개념템플릿 로드
   const loadConceptTemplates = useCallback(async () => {
     try {
       const result = await getConceptTemplates(groupId);
@@ -219,6 +210,18 @@ export default function FormCreatePage() {
     }
   }, [groupId, user?.id]);
 
+  // 클래스 로드
+  const loadClasses = useCallback(async () => {
+    try {
+      const result = await getAllClasses(groupId, user?.id || "");
+      if (result.success && result.data) {
+        setClasses(result.data);
+      }
+    } catch (error) {
+      console.error("클래스 로드 오류:", error);
+    }
+  }, [groupId, user?.id]);
+
   // 폼 데이터 로드 (수정/복제 시)
   const loadFormData = useCallback(async () => {
     if (!editId && !duplicateId) return;
@@ -228,16 +231,22 @@ export default function FormCreatePage() {
 
     try {
       setLoading(true);
-      const result = await getFormDetails(targetId);
+
+      // supervision 정보가 포함된 폼 상세 정보 조회
+      const result = await getFormDetailsWithSupervision(targetId);
 
       if (result.success && result.data) {
         const formDetail = result.data;
 
+        // 담당자 정보 추출
+        const timeTeacherId = formDetail.supervisionInfo?.timeTeacher?.id;
+        const teacherId = formDetail.supervisionInfo?.teacher?.id;
+
         setFormData({
           title: isDuplicating ? `${formDetail.title} [복사본]` : formDetail.title,
           description: formDetail.description || "",
-          timeTeacherId: formDetail.timeTeacher?.id,
-          teacherId: formDetail.teacher?.id,
+          timeTeacherId,
+          teacherId,
         });
 
         setCurrentFormId(isEditing ? formDetail.id : null);
@@ -269,6 +278,16 @@ export default function FormCreatePage() {
             baseQuestion.examTotalQuestions = q.examDetails.total_questions;
             baseQuestion.examConceptTemplateId = q.examDetails.concept_template_id || undefined;
             baseQuestion.examUseExisting = !!q.examDetails.concept_template_id;
+
+            // 개념템플릿이 있으면 로드
+            if (q.examDetails.conceptTemplate) {
+              baseQuestion.examConceptItems = q.examDetails.conceptTemplate.conceptItems.map(
+                (item) => ({
+                  text: item.concept_text,
+                  description: item.concept_description || "",
+                })
+              );
+            }
           }
 
           return baseQuestion;
@@ -280,8 +299,8 @@ export default function FormCreatePage() {
         form.setFieldsValue({
           title: isDuplicating ? `${formDetail.title} [복사본]` : formDetail.title,
           description: formDetail.description || "",
-          timeTeacherId: formDetail.timeTeacher?.id,
-          teacherId: formDetail.teacher?.id,
+          timeTeacherId,
+          teacherId,
         });
       }
     } catch (error) {
@@ -290,14 +309,15 @@ export default function FormCreatePage() {
     } finally {
       setLoading(false);
     }
-  }, [editId, duplicateId, isEditing, isDuplicating, form, message]);
+  }, [editId, duplicateId, isEditing, isDuplicating, form]);
 
   // 초기 데이터 로드
   useEffect(() => {
     loadGroupMembers();
-    loadConceptTemplates(); // 🔧 개념템플릿 로드 추가
+    loadConceptTemplates();
+    loadClasses();
     loadFormData();
-  }, [loadGroupMembers, loadConceptTemplates, loadFormData]);
+  }, [loadGroupMembers, loadConceptTemplates, loadClasses, loadFormData]);
 
   // 질문 추가
   const addQuestion = (type: QuestionFormData["questionType"]) => {
@@ -334,7 +354,6 @@ export default function FormCreatePage() {
   // 질문 삭제
   const deleteQuestion = (index: number) => {
     const newQuestions = questions.filter((_, i) => i !== index);
-    // orderIndex 재정렬
     const reorderedQuestions = newQuestions.map((q, i) => ({ ...q, orderIndex: i }));
     setQuestions(reorderedQuestions);
 
@@ -350,7 +369,7 @@ export default function FormCreatePage() {
     setQuestions((prev) => prev.map((q, i) => (i === index ? { ...q, ...updates } : q)));
   };
 
-  // 🔧 폼 저장 (supervision_mappings 활용)
+  // 폼 저장
   const handleSave = async (asDraft = true) => {
     try {
       setSaving(true);
@@ -362,15 +381,14 @@ export default function FormCreatePage() {
         return;
       }
 
-      // 폼 생성/업데이트
       let formId = currentFormId;
 
+      // 1. 폼 생성/업데이트
       if (isEditing && currentFormId) {
-        // 기존 폼 업데이트
         const updateRequest: UpdateFormRequest = {
           title: values.title,
           description: values.description,
-          status: asDraft ? "draft" : "draft",
+          status: asDraft ? "draft" : "save",
         };
 
         const result = await updateForm(currentFormId, updateRequest);
@@ -378,13 +396,12 @@ export default function FormCreatePage() {
           throw new Error(result.error);
         }
       } else {
-        // 새 폼 생성
         const createRequest: CreateFormRequest = {
           title: values.title,
           description: values.description,
           groupId,
           creatorId: user!.id,
-          status: asDraft ? "draft" : "draft",
+          status: asDraft ? "draft" : "save",
         };
 
         const result = await createForm(createRequest);
@@ -394,45 +411,54 @@ export default function FormCreatePage() {
 
         formId = result.data!;
         setCurrentFormId(formId);
-      }
 
-      // 🔧 supervision_mappings에 담당자 정보 저장
-      if (formId && (values.timeTeacherId || values.teacherId)) {
-        try {
-          const supervisionResult = await saveFormSupervisionMapping(
+        // 새 폼 생성 시 보고서도 생성
+        if (!isEditing) {
+          await createReport({
             formId,
-            groupId,
-            values.timeTeacherId,
-            values.teacherId
-          );
-
-          if (!supervisionResult.success) {
-            console.error("Supervision mapping 저장 실패:", supervisionResult.error);
-            message.warning("담당자 정보 저장 중 오류가 발생했습니다.");
-          }
-        } catch (supervisionError) {
-          console.error("Supervision mapping 오류:", supervisionError);
-          message.warning("담당자 정보 저장 중 오류가 발생했습니다.");
+            formResponseId: "",
+            studentName: "",
+            className: "",
+            timeTeacherId: values.timeTeacherId,
+            teacherId: values.teacherId,
+            supervisionId: "",
+          });
         }
       }
 
-      // 질문 저장/업데이트
+      // 2. supervision_mappings에 담당자 정보 저장
+      if (formId && (values.timeTeacherId || values.teacherId)) {
+        const supervisionResult = await saveFormSupervisionMapping(
+          formId,
+          groupId,
+          values.timeTeacherId,
+          values.teacherId
+        );
+
+        if (!supervisionResult.success) {
+          console.error("Supervision mapping 저장 실패:", supervisionResult.error);
+        }
+      }
+
+      // 3. 질문 저장/업데이트
       for (let i = 0; i < questions.length; i++) {
         const question = questions[i];
 
-        // 🔧 시험형 질문의 개념 템플릿 먼저 생성
+        // 시험형 질문의 새 개념 템플릿 생성
         if (
           question.questionType === "exam" &&
           !question.examUseExisting &&
-          question.examNewTemplateName
+          question.examNewTemplateName &&
+          question.examConceptItems &&
+          question.examConceptItems.length > 0
         ) {
           const conceptRequest: CreateConceptTemplateRequest = {
             name: question.examNewTemplateName,
             groupId,
             creatorId: user!.id,
-            conceptCount: Number(question.examTotalQuestions) || 10, // number로 변환
-            status: "published",
-            conceptItems: (question.examConceptItems || [])
+            conceptCount: question.examTotalQuestions || 10,
+            status: "completed",
+            conceptItems: question.examConceptItems
               .filter((item) => item.text.trim())
               .map((item, index) => ({
                 conceptText: item.text,
@@ -442,9 +468,9 @@ export default function FormCreatePage() {
           };
 
           const templateResult = await createConceptTemplate(conceptRequest);
-          if (templateResult.success) {
-            question.examConceptTemplateId = templateResult.data!;
-            question.examUseExisting = true; // 생성 후 기존 템플릿 사용으로 변경
+          if (templateResult.success && templateResult.data) {
+            question.examConceptTemplateId = templateResult.data;
+            question.examUseExisting = true;
           }
         }
 
@@ -453,7 +479,7 @@ export default function FormCreatePage() {
           const updateRequest: UpdateQuestionRequest = {
             questionText: question.questionText,
             isRequired: question.isRequired,
-            orderIndex: Number(question.orderIndex), // number로 변환
+            orderIndex: question.orderIndex,
           };
 
           // 타입별 추가 정보
@@ -487,7 +513,7 @@ export default function FormCreatePage() {
             questionType: question.questionType,
             questionText: question.questionText,
             isRequired: question.isRequired,
-            orderIndex: Number(question.orderIndex), // number로 변환
+            orderIndex: question.orderIndex,
           };
 
           // 타입별 추가 정보
@@ -518,13 +544,24 @@ export default function FormCreatePage() {
             ...createRequest,
             formId: formId!,
           });
-          if (result.success) {
-            // 생성된 질문 ID로 업데이트
-            setQuestions((prev) =>
-              prev.map((q, index) => (index === i ? { ...q, id: result.data!, isNew: false } : q))
-            );
+
+          if (result.success && result.data) {
+            questions[i].id = result.data;
+            questions[i].isNew = false;
           }
         }
+      }
+
+      // 질문 순서가 변경된 경우 순서 업데이트
+      if (questions.some((q, index) => q.orderIndex !== index)) {
+        const reorderRequest: ReorderQuestionsRequest = {
+          questionOrders: questions.map((q, index) => ({
+            questionId: q.id!,
+            newOrderIndex: index,
+          })),
+        };
+
+        await reorderFormQuestions(reorderRequest);
       }
 
       message.success(asDraft ? "임시저장되었습니다." : "폼이 저장되었습니다.");
@@ -541,7 +578,41 @@ export default function FormCreatePage() {
 
   // 폼 전송
   const handleSend = () => {
+    if (!currentFormId) {
+      message.warning("먼저 폼을 저장해주세요.");
+      return;
+    }
     setSendModalOpen(true);
+  };
+
+  // 폼 전송 확인
+  const handleConfirmSend = async () => {
+    if (!currentFormId || sendTargets.length === 0) return;
+
+    try {
+      setSending(true);
+
+      const sendRequest: SendFormRequest = {
+        formId: currentFormId,
+        targets: sendTargets,
+        message: "새로운 폼을 작성해주세요.",
+      };
+
+      const result = await sendFormWithSupervision(sendRequest);
+
+      if (result.success) {
+        message.success("폼이 전송되었습니다.");
+        setSendModalOpen(false);
+        router.push(`/groups/${groupId}/forms`);
+      } else {
+        message.error(result.error || "폼 전송에 실패했습니다.");
+      }
+    } catch (error) {
+      console.error("폼 전송 오류:", error);
+      message.error("폼 전송 중 오류가 발생했습니다.");
+    } finally {
+      setSending(false);
+    }
   };
 
   // 질문 렌더링
@@ -561,7 +632,7 @@ export default function FormCreatePage() {
                   <div {...provided.dragHandleProps}>
                     <DragOutlined className="cursor-move text-gray-400" />
                   </div>
-                  <Badge count={index + 1} color="blue" />
+                  <Badge count={index + 1} style={{ backgroundColor: "#1890ff" }} />
                   <Text strong>{question.questionText || "새 질문"}</Text>
                   {question.questionType === "text" && (
                     <FileTextOutlined className="text-blue-500" />
@@ -628,6 +699,7 @@ export default function FormCreatePage() {
                       value={question.textMaxLength}
                       onChange={(value) => updateQuestion(index, { textMaxLength: value || 100 })}
                       addonBefore="최대 글자수"
+                      style={{ width: 200 }}
                     />
                   </div>
                 )}
@@ -642,6 +714,7 @@ export default function FormCreatePage() {
                           value={question.ratingMax}
                           onChange={(value) => updateQuestion(index, { ratingMax: value || 5 })}
                           addonBefore="최대 점수"
+                          style={{ width: "100%" }}
                         />
                       </Col>
                       <Col span={12}>
@@ -652,6 +725,7 @@ export default function FormCreatePage() {
                           value={question.ratingStep}
                           onChange={(value) => updateQuestion(index, { ratingStep: value || 1 })}
                           addonBefore="단계"
+                          style={{ width: "100%" }}
                         />
                       </Col>
                     </Row>
@@ -660,18 +734,20 @@ export default function FormCreatePage() {
 
                 {question.questionType === "choice" && (
                   <div className="space-y-3">
-                    <Switch
-                      checked={question.choiceMultiple}
-                      onChange={(checked) => updateQuestion(index, { choiceMultiple: checked })}
-                      checkedChildren="다중선택"
-                      unCheckedChildren="단일선택"
-                    />
-                    <Switch
-                      checked={question.choiceAllowOther}
-                      onChange={(checked) => updateQuestion(index, { choiceAllowOther: checked })}
-                      checkedChildren="기타 옵션 허용"
-                      unCheckedChildren="기타 옵션 비허용"
-                    />
+                    <Space>
+                      <Switch
+                        checked={question.choiceMultiple}
+                        onChange={(checked) => updateQuestion(index, { choiceMultiple: checked })}
+                        checkedChildren="다중선택"
+                        unCheckedChildren="단일선택"
+                      />
+                      <Switch
+                        checked={question.choiceAllowOther}
+                        onChange={(checked) => updateQuestion(index, { choiceAllowOther: checked })}
+                        checkedChildren="기타 옵션 허용"
+                        unCheckedChildren="기타 옵션 비허용"
+                      />
+                    </Space>
                     <div>
                       <Text strong>선택지:</Text>
                       {(question.choiceOptions || []).map((option, optionIndex) => (
@@ -723,6 +799,7 @@ export default function FormCreatePage() {
                         updateQuestion(index, { examTotalQuestions: value || 10 })
                       }
                       addonBefore="문제 수"
+                      style={{ width: 200 }}
                     />
 
                     <Radio.Group
@@ -740,7 +817,7 @@ export default function FormCreatePage() {
                         onChange={(value) =>
                           updateQuestion(index, { examConceptTemplateId: value })
                         }
-                        className="w-full"
+                        style={{ width: "100%" }}
                       >
                         {conceptTemplates.map((template) => (
                           <Select.Option key={template.id} value={template.id}>
@@ -976,6 +1053,56 @@ export default function FormCreatePage() {
           </Space>
         </div>
       </Form>
+
+      {/* 전송 모달 */}
+      <Modal
+        title="폼 전송"
+        open={sendModalOpen}
+        onCancel={() => setSendModalOpen(false)}
+        onOk={handleConfirmSend}
+        confirmLoading={sending}
+        okText="전송"
+        cancelText="취소"
+      >
+        <div className="space-y-4">
+          <Alert message="폼을 전송하면 수정이 불가능합니다." type="warning" showIcon />
+
+          <div>
+            <Text strong>전송 대상 선택:</Text>
+            <Select
+              mode="multiple"
+              placeholder="반 또는 개인을 선택하세요"
+              style={{ width: "100%", marginTop: 8 }}
+              onChange={(values) => {
+                setSendTargets(
+                  values.map((v) => {
+                    const [type, id] = v.split(":");
+                    return { type, id };
+                  })
+                );
+              }}
+            >
+              <Select.OptGroup label="반">
+                {classes.map((cls) => (
+                  <Select.Option key={`class:${cls.id}`} value={`class:${cls.id}`}>
+                    <TeamOutlined /> {cls.name} ({cls.memberCount || 0}명)
+                  </Select.Option>
+                ))}
+              </Select.OptGroup>
+              <Select.OptGroup label="개인">
+                {teachers.map((teacher) => (
+                  <Select.Option
+                    key={`individual:${teacher.users.id}`}
+                    value={`individual:${teacher.users.id}`}
+                  >
+                    <UserOutlined /> {teacher.users.name} ({teacher.users.nickname})
+                  </Select.Option>
+                ))}
+              </Select.OptGroup>
+            </Select>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

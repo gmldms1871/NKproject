@@ -262,6 +262,33 @@ const formOverviews = new Map<string, FormOverviewSummary>();
 
 // ===== 유틸리티 함수들 =====
 
+export async function createReport(request: CreateReportRequest): Promise<ApiResponse<string>> {
+  try {
+    const { data: report, error } = await supabaseAdmin
+      .from("reports")
+      .insert({
+        form_id: request.formId,
+        form_response_id: request.formResponseId || null,
+        student_name: request.studentName || "",
+        class_name: request.className || "",
+        time_teacher_id: request.timeTeacherId || null,
+        teacher_id: request.teacherId || null,
+        supervision_id: request.supervisionId || null,
+        stage: 0,
+        draft_status: "waiting_for_response",
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return { success: true, data: report.id };
+  } catch (error) {
+    console.error("Error creating report:", error);
+    return { success: false, error: "보고서 생성 중 오류가 발생했습니다." };
+  }
+}
+
 /**
  * 보고서 진행 상태 계산
  */

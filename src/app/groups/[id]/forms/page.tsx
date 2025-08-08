@@ -73,7 +73,7 @@ interface FormListItem extends FormWithDetails {
   totalTargets: number;
   completedResponses: number;
   pendingResponses: number;
-  actualStatus: "draft" | "sent" | "active" | "closed";
+  actualStatus: "draft" | "sent" | "save" | "closed";
 }
 
 interface SendTarget {
@@ -570,14 +570,14 @@ export default function FormsPage() {
   }, [setPageHeader, groupId]);
 
   // 폼 상태 계산 함수
-  const calculateActualStatus = (form: FormWithDetails): "draft" | "sent" | "active" | "closed" => {
-    // 응답이 있으면서 완료된 응답이 있다면 active
+  const calculateActualStatus = (form: FormWithDetails): "draft" | "sent" | "save" | "closed" => {
+    // 응답이 있으면서 완료된 응답이 있다면 save
     if (form.responses && form.responses.length > 0) {
       const hasCompleted = form.responses.some((r) => r.status === "completed");
-      const hasActive = form.responses.some((r) => r.status === "active" || r.status === "pending");
+      const hasActive = form.responses.some((r) => r.status === "save" || r.status === "pending");
 
       if (hasCompleted && !hasActive) return "closed";
-      if (hasCompleted || hasActive) return "active";
+      if (hasCompleted || hasActive) return "save";
     }
 
     // 타겟이 설정되어 있고 전송되었다면 sent
@@ -588,6 +588,7 @@ export default function FormsPage() {
     // 기본적으로는 폼의 status를 따름
     if (form.status === "draft") return "draft";
     if (form.status === "closed") return "closed";
+    if (form.status === "save") return "save";
 
     return "draft"; // 기본값
   };
@@ -765,7 +766,7 @@ export default function FormsPage() {
     totalForms: filteredForms.length,
     draftForms: filteredForms.filter((f) => f.actualStatus === "draft").length,
     sentForms: filteredForms.filter((f) => f.actualStatus === "sent").length,
-    activeForms: filteredForms.filter((f) => f.actualStatus === "active").length,
+    activeForms: filteredForms.filter((f) => f.actualStatus === "save").length,
     closedForms: filteredForms.filter((f) => f.actualStatus === "closed").length,
     averageProgress:
       filteredForms.length > 0
@@ -808,7 +809,7 @@ export default function FormsPage() {
         const statusConfig = {
           draft: { color: "default", text: "임시저장", icon: <ClockCircleOutlined /> },
           sent: { color: "blue", text: "전송됨", icon: <MailOutlined /> },
-          active: { color: "green", text: "진행중", icon: <CheckCircleOutlined /> },
+          save: { color: "green", text: "저장됨", icon: <CheckCircleOutlined /> },
           closed: { color: "red", text: "완료", icon: <ExclamationCircleOutlined /> },
         };
 
@@ -908,7 +909,6 @@ export default function FormsPage() {
             label: "전송",
             icon: <SendOutlined />,
             onClick: () => handleSendForm(record),
-            disabled: record.actualStatus !== "draft", // 임시저장 상태에서만 전송 가능
           },
           {
             type: "divider" as const,
@@ -971,7 +971,7 @@ export default function FormsPage() {
         <Col xs={24} sm={12} md={5}>
           <Card>
             <Statistic
-              title="진행중"
+              title="저장됨"
               value={statistics.activeForms}
               prefix={<CheckCircleOutlined />}
               valueStyle={{ color: "#52c41a" }}
@@ -1015,7 +1015,7 @@ export default function FormsPage() {
             >
               <Select.Option value="draft">임시저장</Select.Option>
               <Select.Option value="sent">전송됨</Select.Option>
-              <Select.Option value="active">진행중</Select.Option>
+              <Select.Option value="save">저장됨</Select.Option>
               <Select.Option value="closed">완료</Select.Option>
             </Select>
           </Col>

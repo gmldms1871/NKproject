@@ -222,6 +222,7 @@ export default function FormDetailPage() {
           </Card>
         );
 
+      // FormDetailPage의 시험 타입 미리보기 부분만 수정
       case "exam":
         const totalQuestions = question.examDetails?.total_questions || 0;
         const conceptTemplate = question.examDetails?.conceptTemplate;
@@ -241,17 +242,27 @@ export default function FormDetailPage() {
                 <Text strong className="text-blue-700">
                   개념 템플릿: {conceptTemplate.name}
                 </Text>
-                <div className="mt-2 space-y-1">
-                  {conceptTemplate.conceptItems.map((item, index) => (
-                    <div key={item.id || index} className="text-sm text-blue-600">
-                      {index + 1}. {item.concept_text}
-                    </div>
-                  ))}
-                </div>
+                {conceptTemplate.conceptItems && conceptTemplate.conceptItems.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {conceptTemplate.conceptItems.map((item, index) => (
+                      <div key={item.id || index} className="text-sm text-blue-600">
+                        {index + 1}. {item.concept_text}
+                        {item.concept_description && (
+                          <span className="text-gray-500 ml-2">- {item.concept_description}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
-            <Alert message="시험 문제는 응답 시 자동으로 생성됩니다" type="info" showIcon />
+            <Alert
+              message="시험 문제 미리보기"
+              description={`이 폼에서는 ${totalQuestions}개의 시험 문제가 출제됩니다. 실제 문제는 응답 시 자동으로 생성됩니다.`}
+              type="info"
+              showIcon
+            />
           </Card>
         );
 
