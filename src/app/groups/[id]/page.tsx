@@ -119,11 +119,9 @@ export default function GroupDetailPage() {
   const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [editingRole, setEditingRole] = useState<GroupRole | null>(null);
 
-  const [inviteForm] = Form.useForm();
   const [roleForm] = Form.useForm();
   const [settingsForm] = Form.useForm();
   const [transferForm] = Form.useForm();
-
   const userRole = members.find((m) => m.users?.id === user?.id)?.group_roles;
   const isOwner = group?.owner_id === user?.id;
 
@@ -711,6 +709,31 @@ export default function GroupDetailPage() {
             )}
           </div>
           <Table columns={membersColumns} dataSource={members} rowKey="id" pagination={false} />
+        </div>
+      ),
+    },
+    {
+      key: "reports",
+      label: "보고서",
+      children: (
+        <div>
+          <div className="mb-4 flex justify-between">
+            <h3 className="text-lg font-medium">보고서 관리</h3>
+            <Button
+              type="primary"
+              icon={<FileTextOutlined />}
+              onClick={() => router.push(`/groups/${groupId}/reports`)}
+            >
+              보고서 보기
+            </Button>
+          </div>
+          <div className="text-center py-8">
+            <FileTextOutlined style={{ fontSize: 48, color: "#d9d9d9", marginBottom: 16 }} />
+            <p className="text-gray-500 mb-4">그룹의 모든 보고서를 관리할 수 있습니다.</p>
+            <Button type="primary" onClick={() => router.push(`/groups/${groupId}/reports`)}>
+              보고서 목록 보기
+            </Button>
+          </div>
         </div>
       ),
     },

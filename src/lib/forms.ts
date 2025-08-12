@@ -147,7 +147,7 @@ export interface ReorderQuestionsRequest {
 export interface SendFormRequest {
   formId: string;
   targets: {
-    type: "class" | "individual";
+    type: "class" | "user";
     id: string;
   }[];
   message?: string;
@@ -546,7 +546,7 @@ export async function getGroupForms(
       forms?.map((form) => {
         const totalTargets = form.form_targets?.length || 0;
         const completedResponses =
-          form.form_responses?.filter((r) => r.status === "completed")?.length || 0;
+          form.form_responses?.filter((r) => r.status === "submitted")?.length || 0;
 
         return {
           ...form,
@@ -632,7 +632,7 @@ export async function getFormDetails(formId: string): Promise<ApiResponse<FormWi
 
     const totalTargets = targetsWithInfo.length;
     const completedResponses =
-      form.form_responses?.filter((r) => r.status === "completed").length || 0;
+      form.form_responses?.filter((r) => r.status === "submitted").length || 0;
     const progressRate = totalTargets > 0 ? (completedResponses / totalTargets) * 100 : 0;
 
     const formWithDetails: FormWithDetails = {
@@ -752,7 +752,7 @@ export async function getFormDetailsWithSupervision(
 
     const totalTargets = targetsWithInfo.length;
     const completedResponses =
-      form.form_responses?.filter((r) => r.status === "completed").length || 0;
+      form.form_responses?.filter((r) => r.status === "submitted").length || 0;
     const progressRate = totalTargets > 0 ? (completedResponses / totalTargets) * 100 : 0;
 
     const formWithDetails: FormWithDetails & { supervisionInfo?: SupervisionInfo } = {
@@ -882,7 +882,7 @@ export async function searchForms(
     const formsWithDetails: FormWithDetails[] = filteredForms.map((form) => {
       const totalTargets = form.form_targets?.length || 0;
       const completedResponses =
-        form.form_responses?.filter((r) => r.status === "completed")?.length || 0;
+        form.form_responses?.filter((r) => r.status === "submitted")?.length || 0;
 
       return {
         ...form,
@@ -930,23 +930,6 @@ export async function createForm(request: CreateFormRequest): Promise<ApiRespons
       .single();
 
     if (error) throw error;
-
-    // 보고서 생성
-    const { error: reportError } = await supabaseAdmin.from("reports").insert({
-      form_id: form.id,
-      form_response_id: null,
-      student_name: "",
-      class_name: "",
-      stage: 0,
-      draft_status: "waiting_for_response",
-      time_teacher_id: null,
-      teacher_id: null,
-      supervision_id: null,
-    });
-
-    if (reportError) {
-      console.warn("Report creation failed:", reportError);
-    }
 
     // 폼 생성 알림 (save 상태인 경우만)
     if (request.status === "save") {
@@ -1090,14 +1073,21 @@ export async function duplicateForm(request: DuplicateFormRequest): Promise<ApiR
 
     await supabaseAdmin.from("reports").insert({
       form_id: newForm.id,
-      form_response_id: null,
-      student_name: "",
-      class_name: "",
-      stage: 0,
-      draft_status: "waiting_for_response",
-      time_teacher_id: null,
-      teacher_id: null,
-      supervision_id: null,
+      form_response_id: null, // 응답이 없음
+      student_name: "", // 빈 값으로 시작
+      class_name: "", // 빈 값으로 시작
+      stage: 0, // 초기 단계
+      draft_status: "waiting_for_response", // 응답 대기 상태
+      time_teacher_id: null, // 아직 배정되지 않음
+      teacher_id: null, // 아직 배정되지 않음
+      supervision_id: null, // 아직 배정되지 않음
+      teacher_comment: null,
+      teacher_completed_at: null,
+      time_teacher_comment: null,
+      time_teacher_completed_at: null,
+      rejected_at: null,
+      rejected_by: null,
+      rejection_reason: null,
     });
 
     return { success: true, data: newForm.id };
@@ -1164,7 +1154,7 @@ export async function sendFormWithSupervision(
 
     // ✅ 2단계: 각 타겟에게 알림 발송 (groupId 포함)
     for (const target of request.targets) {
-      if (target.type === "individual") {
+      if (target.type === "user") {
         await createNotification({
           target_id: target.id,
           creator_id: null,
@@ -1248,7 +1238,7 @@ export async function sendForm(request: SendFormRequest): Promise<ApiResponse<bo
     const { error: updateError } = await supabaseAdmin
       .from("forms")
       .update({
-        status: "save", // "active" → "save"로 변경
+        status: "send", // 전송 상태로 변경
         sent_at: new Date().toISOString(),
       })
       .eq("id", request.formId);
@@ -1267,7 +1257,7 @@ export async function sendForm(request: SendFormRequest): Promise<ApiResponse<bo
 
     // 각 타겟에게 알림 발송
     for (const target of request.targets) {
-      if (target.type === "individual") {
+      if (target.type === "user") {
         await createNotification({
           target_id: target.id,
           creator_id: null,
@@ -1747,7 +1737,7 @@ export async function submitFormResponse(
       .single();
 
     if (formError) throw formError;
-    if (!form || form.status !== "save") {
+    if (!form || (form.status !== "save" && form.status !== "send")) {
       return { success: false, error: "응답할 수 없는 폼입니다." };
     }
 
@@ -1782,7 +1772,7 @@ export async function submitFormResponse(
         student_name: student.name, // ✅ 실제 학생 이름 저장
         class_id: request.classId,
         class_name: className, // ✅ 실제 클래스 이름 저장
-        status: "completed",
+        status: "submitted",
         submitted_at: new Date().toISOString(),
         responder_type: "student",
       })
@@ -1808,15 +1798,16 @@ export async function submitFormResponse(
 
     if (questionResponsesError) throw questionResponsesError;
 
-    // ✅ reports 테이블에 실제 학생/클래스 이름으로 업데이트
+    // ✅ reports 테이블 업데이트 - 응답 제출 시 stage 1로 변경
     const { error: reportError } = await supabaseAdmin
       .from("reports")
       .update({
         form_response_id: formResponse.id,
         student_name: student.name, // ✅ 실제 학생 이름 저장
         class_name: className || "", // ✅ 실제 클래스 이름 저장
-        stage: 1,
-        draft_status: "waiting_for_time_teacher",
+        stage: 1, // ✅ 응답 제출 시 stage 1로 변경
+        draft_status: "draft", // ✅ draft 상태 유지
+        updated_at: new Date().toISOString(), // ✅ 업데이트 시간 기록
       })
       .eq("form_id", request.formId);
 
@@ -1882,7 +1873,7 @@ export async function getFormForResponse(
 
     const hasPermission = targets?.some(
       (target) =>
-        (target.target_type === "individual" && target.target_id === userId) ||
+        (target.target_type === "user" && target.target_id === userId) ||
         target.target_type === "class"
     );
 

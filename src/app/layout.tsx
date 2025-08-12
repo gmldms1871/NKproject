@@ -5,6 +5,7 @@ import { ConfigProvider, App } from "antd";
 import koKR from "antd/locale/ko_KR";
 import { AuthProvider } from "@/contexts/auth-context";
 import { PageHeaderProvider } from "@/contexts/page-header-context";
+import { NotificationProvider } from "@/contexts/notification-context";
 import { NavigationWrapper } from "@/components/NavigationWrapper";
 import "./globals.css";
 
@@ -35,7 +36,9 @@ export default function RootLayout({
           <App>
             <AuthProvider>
               <PageHeaderProvider>
-                <NavigationWrapper>{children}</NavigationWrapper>
+                <NotificationProvider>
+                  <NavigationWrapper>{children}</NavigationWrapper>
+                </NotificationProvider>
               </PageHeaderProvider>
             </AuthProvider>
           </App>

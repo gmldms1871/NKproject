@@ -230,18 +230,20 @@ export default function FormDetailPage() {
 
   // 폼 데이터 로드
   useEffect(() => {
-    loadFormData();
-  }, [loadFormData]);
+    if (formId) {
+      loadFormData();
+    }
+  }, [formId]);
 
   // 사용자 클래스 로드 (응답 모드에서만)
   useEffect(() => {
-    if (form && isRespondMode) {
+    if (form && isRespondMode && user && groupId) {
       loadUserClasses();
     }
-  }, [form, isRespondMode, loadUserClasses]);
+  }, [form, isRespondMode, user, groupId]);
 
   // 응답 데이터 업데이트
-  const updateResponse = (questionId: string, value: any) => {
+  const updateResponse = (questionId: string, value: string | number | number[]) => {
     setResponses((prev) => ({
       ...prev,
       [questionId]: value,
@@ -292,7 +294,13 @@ export default function FormDetailPage() {
       // 응답 데이터 변환
       const submitResponses = form.questions
         .map((question) => {
-          const response: any = {
+          const response: {
+            questionId: string;
+            textResponse?: string;
+            numberResponse?: number;
+            ratingResponse?: number;
+            examResponse?: number[];
+          } = {
             questionId: question.id,
           };
 

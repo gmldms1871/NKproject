@@ -77,7 +77,7 @@ interface FormListItem extends FormWithDetails {
 }
 
 interface SendTarget {
-  type: "individual" | "class";
+  type: "user" | "class";
   id: string;
   name: string;
 }
@@ -283,7 +283,7 @@ function SendFormModal({ open, onCancel, onConfirm, formTitle, loading }: SendFo
         const individual = individuals.find((i) => i.user_id === userId);
         if (individual && individual.user_id) {
           targets.push({
-            type: "individual" as const,
+            type: "user" as const,
             id: userId,
             name: individual.users?.name || "",
           });
@@ -727,24 +727,34 @@ export default function FormsPage() {
     setSendModalOpen(true);
   };
 
-  // 폼 전송 확인 (임시 구현)
+  // 폼 전송 확인
   const handleConfirmSend = async (targets: SendTarget[]) => {
     if (!selectedFormForSend) return;
 
     try {
       setSendingForm(true);
 
-      // TODO: 실제 전송 API 구현 필요
-      // const result = await sendFormToTargets(selectedFormForSend.id, targets, user!.id);
+      const sendRequest: SendFormRequest = {
+        formId: selectedFormForSend.id,
+        targets: targets.map((target) => ({
+          type: target.type,
+          id: target.id,
+        })),
+        message: "새로운 폼을 작성해주세요.",
+      };
 
-      // 임시로 성공 처리
-      await new Promise((resolve) => setTimeout(resolve, 1000)); // 1초 대기
+      const result = await sendForm(sendRequest);
 
-      message.success(`폼이 ${targets.length}개 대상에게 전송되었습니다.`);
-      setSendModalOpen(false);
-      setSelectedFormForSend(null);
-      loadForms(creatorFilter, dateRange); // 목록 새로고침
+      if (result.success) {
+        message.success(`폼이 ${targets.length}개 대상에게 전송되었습니다.`);
+        setSendModalOpen(false);
+        setSelectedFormForSend(null);
+        loadForms(creatorFilter, dateRange); // 목록 새로고침
+      } else {
+        message.error(result.error || "폼 전송에 실패했습니다.");
+      }
     } catch (error) {
+      console.error("폼 전송 오류:", error);
       message.error("폼 전송 중 오류가 발생했습니다.");
     } finally {
       setSendingForm(false);
@@ -896,7 +906,7 @@ export default function FormsPage() {
             label: "수정",
             icon: <EditOutlined />,
             disabled: record.actualStatus === "sent" || record.actualStatus === "closed",
-            onClick: () => router.push(`/groups/${groupId}/forms/create?edit=${record.id}`), // ✅ 수정 URL
+            onClick: () => router.push(`/groups/${groupId}/forms/create?edit=${record.id}`),
           },
           {
             key: "duplicate",

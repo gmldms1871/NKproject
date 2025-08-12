@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Card, Button, Space, Avatar, Tag, Modal, Descriptions, Spin, Result, App } from "antd";
 import {
@@ -22,7 +22,6 @@ import {
   InvitationWithDetails,
 } from "@/lib/groups";
 import { markNotificationAsRead } from "@/lib/notifications";
-import { useCallback } from "react";
 
 export default function InvitationDetailPage() {
   const router = useRouter();

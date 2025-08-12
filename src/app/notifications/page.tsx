@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
   Card,
@@ -38,6 +38,7 @@ import {
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
+import { useNotification } from "@/contexts/notification-context";
 import {
   getUserNotifications,
   markNotificationAsRead,
@@ -49,7 +50,6 @@ import {
   NotificationWithDetails,
 } from "@/lib/notifications";
 import { getMyGroups } from "@/lib/groups";
-import { useCallback } from "react";
 import { Group } from "@/lib/supabase";
 
 interface SearchFilterFormValues {
@@ -62,11 +62,13 @@ export default function NotificationsPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { setPageHeader } = usePageHeader();
+  const { updateUnreadCount } = useNotification();
   const [notifications, setNotifications] = useState<NotificationWithDetails[]>([]);
   const [filteredNotifications, setFilteredNotifications] = useState<NotificationWithDetails[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [messageApi, contextHolder] = message.useMessage();
   const [searchFilterVisible, setSearchFilterVisible] = useState(false);
 
   const [searchForm] = Form.useForm();
@@ -88,14 +90,14 @@ export default function NotificationsPage() {
         setNotifications(notifs);
         setFilteredNotifications(notifs);
       } else {
-        message.error(notificationsResult.error || "알림을 불러오는데 실패했습니다.");
+        messageApi.error(notificationsResult.error || "알림을 불러오는데 실패했습니다.");
       }
 
       if (groupsResult.success) {
         setGroups(groupsResult.data || []);
       }
     } catch (error) {
-      message.error("알림을 불러오는 중 오류가 발생했습니다.");
+      messageApi.error("알림을 불러오는 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -149,12 +151,12 @@ export default function NotificationsPage() {
         }
 
         setFilteredNotifications(filteredNotifs);
-        message.success(`${filteredNotifs.length}개의 알림을 찾았습니다.`);
+        messageApi.success(`${filteredNotifs.length}개의 알림을 찾았습니다.`);
       } else {
-        message.error(result.error || "알림 검색에 실패했습니다.");
+        messageApi.error(result.error || "알림 검색에 실패했습니다.");
       }
     } catch (error) {
-      message.error("알림 검색 중 오류가 발생했습니다.");
+      messageApi.error("알림 검색 중 오류가 발생했습니다.");
     }
   };
 
@@ -173,13 +175,16 @@ export default function NotificationsPage() {
       if (result.success) {
         setNotifications((prev) => prev.map((notif) => ({ ...notif, is_read: true })));
         setFilteredNotifications((prev) => prev.map((notif) => ({ ...notif, is_read: true })));
-        setUnreadCount(0);
-        message.success("모든 알림을 읽음으로 처리했습니다.");
+        // 전역 알림 개수 업데이트
+        if (user) {
+          await updateUnreadCount(user.id);
+        }
+        messageApi.success("모든 알림을 읽음으로 처리했습니다.");
       } else {
-        message.error(result.error || "전체 읽음 처리에 실패했습니다.");
+        messageApi.error(result.error || "전체 읽음 처리에 실패했습니다.");
       }
     } catch (error) {
-      message.error("전체 읽음 처리 중 오류가 발생했습니다.");
+      messageApi.error("전체 읽음 처리 중 오류가 발생했습니다.");
     }
   }, [user]);
 
@@ -234,13 +239,16 @@ export default function NotificationsPage() {
         setFilteredNotifications((prev) =>
           prev.map((notif) => (notif.id === notificationId ? { ...notif, is_read: true } : notif))
         );
-        setUnreadCount((prev) => Math.max(0, prev - 1));
-        message.success("알림을 읽음으로 처리했습니다.");
+        // 전역 알림 개수 업데이트
+        if (user) {
+          await updateUnreadCount(user.id);
+        }
+        messageApi.success("알림을 읽음으로 처리했습니다.");
       } else {
-        message.error(result.error || "알림 읽음 처리에 실패했습니다.");
+        messageApi.error(result.error || "알림 읽음 처리에 실패했습니다.");
       }
     } catch (error) {
-      message.error("알림 읽음 처리 중 오류가 발생했습니다.");
+      messageApi.error("알림 읽음 처리 중 오류가 발생했습니다.");
     }
   };
 
@@ -253,12 +261,12 @@ export default function NotificationsPage() {
       if (result.success) {
         setNotifications((prev) => prev.filter((notif) => notif.id !== notificationId));
         setFilteredNotifications((prev) => prev.filter((notif) => notif.id !== notificationId));
-        message.success("알림이 삭제되었습니다.");
+        messageApi.success("알림이 삭제되었습니다.");
       } else {
-        message.error(result.error || "알림 삭제에 실패했습니다.");
+        messageApi.error(result.error || "알림 삭제에 실패했습니다.");
       }
     } catch (error) {
-      message.error("알림 삭제 중 오류가 발생했습니다.");
+      messageApi.error("알림 삭제 중 오류가 발생했습니다.");
     }
   };
 
@@ -583,6 +591,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
+      {contextHolder}
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* 검색/필터 영역 */}
         {searchFilterVisible && (

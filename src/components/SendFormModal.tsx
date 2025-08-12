@@ -26,7 +26,7 @@ import { getAllClasses, ClassWithDetails } from "@/lib/classes";
 const { Text } = Typography;
 
 interface SendTarget {
-  type: "individual" | "class";
+  type: "user" | "class";
   id: string;
   name: string;
 }
@@ -87,15 +87,15 @@ export default function SendFormModal({
   // 개별 멤버 선택/해제
   const toggleMember = (member: GroupMemberWithDetails) => {
     const target: SendTarget = {
-      type: "individual",
+      type: "user",
       id: member.users.id,
       name: `${member.users.name} (${member.users.nickname})`,
     };
 
     setSelectedTargets((prev) => {
-      const exists = prev.find((t) => t.type === "individual" && t.id === member.users.id);
+      const exists = prev.find((t) => t.type === "user" && t.id === member.users.id);
       if (exists) {
-        return prev.filter((t) => !(t.type === "individual" && t.id === member.users.id));
+        return prev.filter((t) => !(t.type === "user" && t.id === member.users.id));
       } else {
         return [...prev, target];
       }
@@ -223,15 +223,13 @@ export default function SendFormModal({
                   className="flex items-center justify-between bg-blue-50 p-2 rounded"
                 >
                   <Space>
-                    {target.type === "individual" ? (
+                    {target.type === "user" ? (
                       <UserOutlined className="text-blue-500" />
                     ) : (
                       <TeamOutlined className="text-green-500" />
                     )}
                     <Text>{target.name}</Text>
-                    <Text type="secondary">
-                      ({target.type === "individual" ? "개인" : "클래스"})
-                    </Text>
+                    <Text type="secondary">({target.type === "user" ? "개인" : "클래스"})</Text>
                   </Space>
                   <Button
                     type="text"
@@ -257,7 +255,7 @@ export default function SendFormModal({
             dataSource={groupMembers}
             renderItem={(member) => {
               const isSelected = selectedTargets.some(
-                (t) => t.type === "individual" && t.id === member.users.id
+                (t) => t.type === "user" && t.id === member.users.id
               );
 
               return (

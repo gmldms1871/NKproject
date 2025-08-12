@@ -24,16 +24,30 @@ if (!supabaseServiceRoleKey) {
   );
 }
 
+// 싱글톤 패턴으로 클라이언트 인스턴스 관리
+let supabaseInstance: ReturnType<typeof createClient<Database>> | null = null;
+let supabaseAdminInstance: ReturnType<typeof createClient<Database>> | null = null;
+
 // 클라이언트용 Supabase 인스턴스
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
+export const supabase = (() => {
+  if (!supabaseInstance) {
+    supabaseInstance = createClient<Database>(supabaseUrl, supabaseAnonKey);
+  }
+  return supabaseInstance;
+})();
 
 // 서버용 Supabase 인스턴스 (Row Level Security 우회)
-export const supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceRoleKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
+export const supabaseAdmin = (() => {
+  if (!supabaseAdminInstance) {
+    supabaseAdminInstance = createClient<Database>(supabaseUrl, supabaseServiceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+  }
+  return supabaseAdminInstance;
+})();
 
 // 교육 수준 enum 정의
 export const EDUCATION_LEVELS = {

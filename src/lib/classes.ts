@@ -2014,7 +2014,7 @@ export const canUserRespondToForm = async (
     }
 
     for (const target of targets) {
-      if (target.target_type === "individual" && target.target_id === userId) {
+      if (target.target_type === "user" && target.target_id === userId) {
         return { success: true, data: true };
       }
 

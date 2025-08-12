@@ -14,7 +14,7 @@ import {
   Empty,
   Spin,
   Tag,
-  message,
+  App,
   Alert,
 } from "antd";
 import {
@@ -71,6 +71,7 @@ export default function InviteModal({
   inviterId,
   onSuccess,
 }: InviteModalProps) {
+  const { message: messageApi } = App.useApp();
   const [activeTab, setActiveTab] = useState("search");
   const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -179,14 +180,14 @@ export default function InviteModal({
       });
 
       if (result.success) {
-        message.success(`${foundUser.nickname}님에게 초대를 전송했습니다!`);
+        messageApi.success(`${foundUser.nickname}님에게 초대를 전송했습니다!`);
         onSuccess();
         onCancel();
       } else {
-        message.error(result.error || "초대 전송에 실패했습니다.");
+        messageApi.error(result.error || "초대 전송에 실패했습니다.");
       }
     } catch (error) {
-      message.error("초대 전송 중 오류가 발생했습니다.");
+      messageApi.error("초대 전송 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }
@@ -205,7 +206,7 @@ export default function InviteModal({
       );
 
       if (invitationResult.success && invitationResult.data) {
-        message.warning("이미 해당 사용자에게 초대를 보냈습니다.");
+        messageApi.warning("이미 해당 사용자에게 초대를 보냈습니다.");
         setLoading(false);
         return;
       }
@@ -220,14 +221,14 @@ export default function InviteModal({
       const result = await inviteToGroup(inviteData);
 
       if (result.success) {
-        message.success("초대를 전송했습니다!");
+        messageApi.success("초대를 전송했습니다!");
         onSuccess();
         onCancel();
       } else {
-        message.error(result.error || "초대 전송에 실패했습니다.");
+        messageApi.error(result.error || "초대 전송에 실패했습니다.");
       }
     } catch (error) {
-      message.error("초대 전송 중 오류가 발생했습니다.");
+      messageApi.error("초대 전송 중 오류가 발생했습니다.");
     } finally {
       setLoading(false);
     }

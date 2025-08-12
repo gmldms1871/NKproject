@@ -275,7 +275,7 @@ export async function createReport(request: CreateReportRequest): Promise<ApiRes
         teacher_id: request.teacherId || null,
         supervision_id: request.supervisionId || null,
         stage: 0,
-        draft_status: "waiting_for_response",
+        draft_status: "draft",
       })
       .select()
       .single();
@@ -301,7 +301,7 @@ function calculateProgressInfo(report: Report): ReportWithDetails["progressInfo"
 
   if (report.rejected_at) {
     status = "rejected";
-    nextAction = "반려됨";
+    nextAction = `반려됨 - ${report.rejection_reason}`;
   } else {
     switch (stage) {
       case 0:
@@ -320,7 +320,7 @@ function calculateProgressInfo(report: Report): ReportWithDetails["progressInfo"
         break;
       case 3:
         status = "completed";
-        nextAction = "완료됨";
+        nextAction = "완료됨 - AI 정제 가능";
         break;
       default:
         status = "waiting_response";
@@ -475,7 +475,7 @@ export async function advanceReportStage(
     // 현재 보고서 상태 확인
     const { data: currentReport, error: checkError } = await supabaseAdmin
       .from("reports")
-      .select("stage, rejected_at")
+      .select("stage, rejected_at, time_teacher_id, teacher_id")
       .eq("id", request.reportId)
       .single();
 
@@ -490,7 +490,6 @@ export async function advanceReportStage(
 
     const currentStage = currentReport.stage || 0;
     let newStage = currentStage;
-    let newStatus = "";
     const updateData: Partial<ReportUpdate> = {
       updated_at: new Date().toISOString(),
     };
@@ -500,22 +499,35 @@ export async function advanceReportStage(
       if (currentStage !== 1) {
         return { success: false, error: "시간강사 검토 단계가 아닙니다." };
       }
+
+      // 시간강사 권한 확인
+      if (currentReport.time_teacher_id !== request.userId) {
+        return { success: false, error: "해당 보고서의 시간강사만 코멘트를 작성할 수 있습니다." };
+      }
+
       newStage = 2;
-      newStatus = "waiting_teacher";
       updateData.time_teacher_comment = request.comment;
       updateData.time_teacher_completed_at = new Date().toISOString();
+      updateData.time_teacher_id = request.userId; // 시간강사 ID 설정
     } else if (request.commentType === "teacher") {
       if (currentStage !== 2) {
         return { success: false, error: "선생님 검토 단계가 아닙니다." };
       }
+
+      // 선생님 권한 확인
+      if (currentReport.teacher_id !== request.userId) {
+        return { success: false, error: "해당 보고서의 선생님만 코멘트를 작성할 수 있습니다." };
+      }
+
       newStage = 3;
-      newStatus = "completed";
       updateData.teacher_comment = request.comment;
       updateData.teacher_completed_at = new Date().toISOString();
+      updateData.teacher_id = request.userId; // 선생님 ID 설정
     }
 
     updateData.stage = newStage;
-    updateData.draft_status = newStatus;
+    // draft_status는 draft로 유지 (AI 정제 시에만 completed로 변경)
+    updateData.draft_status = "draft";
 
     // 보고서 업데이트
     const { error: updateError } = await supabaseAdmin
@@ -578,18 +590,62 @@ export async function advanceReportStage(
 }
 
 /**
- * 💾 보고서 반려
+ * 💾 보고서 반려 (stage를 낮춤)
  */
 export async function rejectReport(request: RejectReportRequest): Promise<ApiResponse<boolean>> {
   try {
+    // 반려 이유가 필수
+    if (!request.rejectionReason || request.rejectionReason.trim() === "") {
+      return { success: false, error: "반려 사유를 입력해주세요." };
+    }
+
+    // 현재 보고서 상태 확인
+    const { data: currentReport, error: checkError } = await supabaseAdmin
+      .from("reports")
+      .select("stage, rejected_at")
+      .eq("id", request.reportId)
+      .single();
+
+    if (checkError) throw checkError;
+    if (!currentReport) {
+      return { success: false, error: "보고서를 찾을 수 없습니다." };
+    }
+
+    if (currentReport.rejected_at) {
+      return { success: false, error: "이미 반려된 보고서입니다." };
+    }
+
+    const currentStage = currentReport.stage || 0;
+    let newStage = currentStage;
+
+    // 현재 단계에 따라 stage를 낮춤
+    if (currentStage === 3) {
+      // 완료된 보고서는 선생님 검토 단계로
+      newStage = 2;
+    } else if (currentStage === 2) {
+      // 선생님 검토 단계는 시간강사 검토 단계로
+      newStage = 1;
+    } else if (currentStage === 1) {
+      // 시간강사 검토 단계는 응답 대기 단계로
+      newStage = 0;
+    } else {
+      return { success: false, error: "더 이상 단계를 낮출 수 없습니다." };
+    }
+
     const { error } = await supabaseAdmin
       .from("reports")
       .update({
+        stage: newStage,
+        draft_status: "draft", // 반려 시에도 draft 상태 유지
         rejected_at: new Date().toISOString(),
         rejected_by: request.rejectedBy,
-        rejection_reason: request.rejectionReason,
-        draft_status: "rejected",
+        rejection_reason: request.rejectionReason.trim(),
         updated_at: new Date().toISOString(),
+        // 반려 시 코멘트 초기화
+        time_teacher_comment: null,
+        time_teacher_completed_at: null,
+        teacher_comment: null,
+        teacher_completed_at: null,
       })
       .eq("id", request.reportId);
 
@@ -732,9 +788,16 @@ export async function getGroupReports(
       if (conditions.createdBefore) {
         query = query.lte("created_at", conditions.createdBefore);
       }
+      // draft_status 필터링 추가
+      if (conditions.status && conditions.status.length > 0) {
+        query = query.in("draft_status", conditions.status);
+      }
     }
 
-    const { data: reports, error } = await query.order("updated_at", { ascending: false });
+    // 기본 정렬: 업데이트 시간 내림차순, 단계별 정렬
+    const { data: reports, error } = await query
+      .order("updated_at", { ascending: false })
+      .order("stage", { ascending: true });
 
     if (error) throw error;
 
@@ -1058,6 +1121,19 @@ export async function generateReportSummary(
     // 메모리에 저장 (실제로는 데이터베이스에 저장)
     reportSummaries.set(request.reportId, summary);
 
+    // AI 정제 완료 시 draft_status를 completed로 변경
+    const { error: updateError } = await supabaseAdmin
+      .from("reports")
+      .update({
+        draft_status: "completed",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", request.reportId);
+
+    if (updateError) {
+      console.warn("Report draft_status update failed:", updateError);
+    }
+
     // 요약 생성 완료 알림
     await createNotification({
       target_id: request.userId,
@@ -1273,7 +1349,7 @@ export async function getReportSummary(groupId: string): Promise<ApiResponse<Rep
       .from("reports")
       .select(
         `
-        id, stage, rejected_at, created_at, updated_at,
+        id, stage, rejected_at, created_at, updated_at, draft_status, form_response_id,
         forms!inner(group_id),
         form_responses(submitted_at)
       `
@@ -1294,24 +1370,46 @@ export async function getReportSummary(groupId: string): Promise<ApiResponse<Rep
       stage3: completedReports,
     };
 
-    // 응답률 계산
-    const submittedReports = reports?.filter((r) => r.form_responses?.submitted_at).length || 0;
+    // 응답률 계산 (form_response_id가 있는 경우)
+    const submittedReports = reports?.filter((r) => r.form_response_id).length || 0;
     const responseRate = totalReports > 0 ? (submittedReports / totalReports) * 100 : 0;
     const completionRate = totalReports > 0 ? (completedReports / totalReports) * 100 : 0;
 
-    // 최근 활동 데이터 (간단한 예시 - 실제로는 더 정교한 분석 필요)
+    // 최근 활동 데이터 (실제 데이터 기반으로 계산)
+    const now = new Date();
     const recentActivity = [
       {
-        date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        count: 5,
+        date: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        count:
+          reports?.filter((r) => {
+            const reportDate = r.updated_at ? new Date(r.updated_at) : new Date(r.created_at || "");
+            const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+            return (
+              reportDate >= twoDaysAgo &&
+              reportDate < new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000)
+            );
+          }).length || 0,
         type: "submitted" as const,
       },
       {
-        date: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-        count: 3,
+        date: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
+        count:
+          reports?.filter((r) => {
+            const reportDate = r.updated_at ? new Date(r.updated_at) : new Date(r.created_at || "");
+            const oneDayAgo = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+            return reportDate >= oneDayAgo && reportDate < now;
+          }).length || 0,
         type: "commented" as const,
       },
-      { date: new Date().toISOString().split("T")[0], count: 2, type: "completed" as const },
+      {
+        date: now.toISOString().split("T")[0],
+        count:
+          reports?.filter((r) => {
+            const reportDate = r.updated_at ? new Date(r.updated_at) : new Date(r.created_at || "");
+            return reportDate >= now;
+          }).length || 0,
+        type: "completed" as const,
+      },
     ];
 
     const summary: ReportSummary = {

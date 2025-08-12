@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Tabs, Button, Input, Form, Select, DatePicker, message } from "antd";
 import { UserOutlined, LockOutlined, MailOutlined, PhoneOutlined } from "@ant-design/icons";
@@ -15,6 +15,7 @@ export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [signUpForm] = Form.useForm();
   const [signInForm] = Form.useForm();
+  const [messageApi, contextHolder] = message.useMessage();
 
   // 전화번호 자동 포맷팅 핸들러
   const handlePhoneChange =
@@ -42,14 +43,14 @@ export default function AuthPage() {
       });
 
       if (result.success) {
-        message.success("회원가입이 완료되었습니다! 로그인해주세요.");
+        messageApi.success("회원가입이 완료되었습니다! 로그인해주세요.");
         signUpForm.resetFields();
       } else {
-        message.error(result.error || "회원가입에 실패했습니다.");
+        messageApi.error(result.error || "회원가입에 실패했습니다.");
       }
     } catch (error) {
       console.error(error);
-      message.error("회원가입 중 오류가 발생했습니다.");
+      messageApi.error("회원가입 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -67,14 +68,14 @@ export default function AuthPage() {
 
       if (result.success && result.data) {
         setUser(result.data);
-        message.success(`환영합니다, ${result.data.name}님!`);
+        messageApi.success(`환영합니다, ${result.data.name}님!`);
         router.push("/");
       } else {
-        message.error(result.error || "로그인에 실패했습니다.");
+        messageApi.error(result.error || "로그인에 실패했습니다.");
       }
     } catch (error) {
       console.error(error);
-      message.error("로그인 중 오류가 발생했습니다.");
+      messageApi.error("로그인 중 오류가 발생했습니다.");
     } finally {
       setIsLoading(false);
     }
@@ -234,6 +235,7 @@ export default function AuthPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4">
+      {contextHolder}
       <div className="max-w-md w-full">
         <div className="text-center mb-8">
           <h2 className="text-3xl font-extrabold text-gray-900 mb-2">보고서 관리 시스템</h2>

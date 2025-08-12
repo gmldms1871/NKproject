@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, ReactNode } from "react";
+import { useState, useEffect, ReactNode, useMemo, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Layout, Menu, Badge, Avatar, Dropdown, Space, Button, message } from "antd";
+import { Layout, Menu, Badge, Avatar, Dropdown, Space, Button, App } from "antd";
 import {
   HomeOutlined,
   TeamOutlined,
@@ -17,9 +17,8 @@ import {
 import type { MenuProps } from "antd";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
-import { getUnreadNotificationCount } from "@/lib/notifications";
+import { useNotification } from "@/contexts/notification-context";
 import { signOut } from "@/lib/users";
-import { useCallback } from "react";
 
 const { Header, Content } = Layout;
 
@@ -32,21 +31,14 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
   const pathname = usePathname();
   const { user, setUser } = useAuth();
   const { pageHeader } = usePageHeader();
-  const [unreadCount, setUnreadCount] = useState(0);
+  const { message: messageApi } = App.useApp();
+  const { unreadCount, updateUnreadCount, setUnreadCount } = useNotification();
   const [signingOut, setSigningOut] = useState(false);
 
   const loadUnreadCount = useCallback(async () => {
     if (!user) return;
-
-    try {
-      const result = await getUnreadNotificationCount(user.id);
-      if (result.success) {
-        setUnreadCount(result.data || 0);
-      }
-    } catch (error) {
-      console.error("알림 개수 조회 실패:", error);
-    }
-  }, [user]);
+    await updateUnreadCount(user.id);
+  }, [user, updateUnreadCount]);
 
   // 읽지 않은 알림 개수 조회
   useEffect(() => {
@@ -78,7 +70,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
         setUnreadCount(0);
 
         // 성공 메시지
-        message.success("안전하게 로그아웃되었습니다.");
+        messageApi.success("안전하게 로그아웃되었습니다.");
 
         // 홈페이지로 리디렉션
         router.push("/");
@@ -87,7 +79,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
         setUser(null);
         setUnreadCount(0);
 
-        message.warning("로그아웃 처리 중 일부 문제가 발생했지만 로그아웃되었습니다.");
+        messageApi.warning("로그아웃 처리 중 일부 문제가 발생했지만 로그아웃되었습니다.");
         router.push("/");
       }
     } catch (error) {
@@ -97,7 +89,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
       setUser(null);
       setUnreadCount(0);
 
-      message.error("로그아웃 처리 중 오류가 발생했지만 로그아웃되었습니다.");
+      messageApi.error("로그아웃 처리 중 오류가 발생했지만 로그아웃되었습니다.");
       router.push("/");
     } finally {
       setSigningOut(false);
@@ -108,6 +100,68 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
   const authRequiredPaths = ["/groups", "/invitations", "/notifications", "/mypage"];
   const isAuthRequired = authRequiredPaths.some((path) => pathname.startsWith(path));
 
+  const menuItems: MenuProps["items"] = useMemo(() => {
+    return user
+      ? [
+          {
+            key: "/",
+            icon: <HomeOutlined />,
+            label: "홈",
+          },
+          {
+            key: "/groups",
+            icon: <TeamOutlined />,
+            label: "그룹",
+          },
+          {
+            key: "/invitations",
+            icon: <MailOutlined />,
+            label: "초대",
+          },
+          {
+            key: "/notifications",
+            icon:
+              unreadCount > 0 ? (
+                <Badge count={unreadCount} size="small">
+                  <BellOutlined />
+                </Badge>
+              ) : (
+                <BellOutlined />
+              ),
+            label: "알림",
+          },
+        ]
+      : [
+          {
+            key: "/",
+            icon: <HomeOutlined />,
+            label: "홈",
+          },
+        ];
+  }, [user, unreadCount]);
+
+  const userMenuItems: MenuProps["items"] = useMemo(
+    () => [
+      {
+        key: "mypage",
+        icon: <UserOutlined />,
+        label: "마이페이지",
+        onClick: () => router.push("/mypage"),
+      },
+      {
+        type: "divider",
+      },
+      {
+        key: "logout",
+        icon: <LogoutOutlined />,
+        label: signingOut ? "로그아웃 중..." : "로그아웃",
+        onClick: handleSignOut,
+        disabled: signingOut,
+      },
+    ],
+    [signingOut, router]
+  );
+
   // 인증 페이지인 경우 네비게이션 숨김
   if (pathname === "/auth") {
     return <>{children}</>;
@@ -117,63 +171,6 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
   if (isAuthRequired && !user) {
     return <>{children}</>;
   }
-
-  const menuItems: MenuProps["items"] = user
-    ? [
-        {
-          key: "/",
-          icon: <HomeOutlined />,
-          label: "홈",
-        },
-        {
-          key: "/groups",
-          icon: <TeamOutlined />,
-          label: "그룹",
-        },
-        {
-          key: "/invitations",
-          icon: <MailOutlined />,
-          label: "초대",
-        },
-        {
-          key: "/notifications",
-          icon:
-            unreadCount > 0 ? (
-              <Badge count={unreadCount} size="small">
-                <BellOutlined />
-              </Badge>
-            ) : (
-              <BellOutlined />
-            ),
-          label: "알림",
-        },
-      ]
-    : [
-        {
-          key: "/",
-          icon: <HomeOutlined />,
-          label: "홈",
-        },
-      ];
-
-  const userMenuItems: MenuProps["items"] = [
-    {
-      key: "mypage",
-      icon: <UserOutlined />,
-      label: "마이페이지",
-      onClick: () => router.push("/mypage"),
-    },
-    {
-      type: "divider",
-    },
-    {
-      key: "logout",
-      icon: <LogoutOutlined />,
-      label: signingOut ? "로그아웃 중..." : "로그아웃",
-      onClick: handleSignOut,
-      disabled: signingOut,
-    },
-  ];
 
   const handleMenuClick = ({ key }: { key: string }) => {
     router.push(key);
