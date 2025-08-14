@@ -17,7 +17,11 @@ export default function AuthPage() {
   const [signInForm] = Form.useForm();
   const [messageApi, contextHolder] = message.useMessage();
 
-  // 전화번호 자동 포맷팅 핸들러
+  const handleTabChange = (key: string) => {
+    signUpForm.setFields(signUpForm.getFieldsError().map(({ name }) => ({ name, errors: [] })));
+    signInForm.setFields(signInForm.getFieldsError().map(({ name }) => ({ name, errors: [] })));
+  };
+
   const handlePhoneChange =
     (formName: "signin" | "signup") => (e: React.ChangeEvent<HTMLInputElement>) => {
       const formatted = formatPhoneNumber(e.target.value);
@@ -56,7 +60,6 @@ export default function AuthPage() {
     }
   };
 
-  // 로그인 처리
   const handleSignIn = async (values: SignInRequest) => {
     setIsLoading(true);
 
@@ -243,7 +246,7 @@ export default function AuthPage() {
         </div>
 
         <Card>
-          <Tabs defaultActiveKey="signin" centered items={tabItems} />
+          <Tabs defaultActiveKey="signin" centered items={tabItems} onChange={handleTabChange} />
         </Card>
       </div>
     </div>
