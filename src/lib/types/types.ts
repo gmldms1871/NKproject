@@ -944,6 +944,7 @@ export type Database = {
           rejected_at: string | null
           rejected_by: string | null
           rejection_reason: string | null
+          result: string | null
           stage: number | null
           student_name: string | null
           supervision_id: string | null
@@ -965,6 +966,7 @@ export type Database = {
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
+          result?: string | null
           stage?: number | null
           student_name?: string | null
           supervision_id?: string | null
@@ -986,6 +988,7 @@ export type Database = {
           rejected_at?: string | null
           rejected_by?: string | null
           rejection_reason?: string | null
+          result?: string | null
           stage?: number | null
           student_name?: string | null
           supervision_id?: string | null

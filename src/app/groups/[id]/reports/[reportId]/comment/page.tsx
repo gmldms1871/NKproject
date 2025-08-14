@@ -91,10 +91,21 @@ export default function CommentPage() {
 
         // 권한 확인 및 코멘트 타입 설정
         if (reportData) {
-          if (reportData.stage === 1 && reportData.time_teacher_id === user.id) {
-            setCommentType("time_teacher");
-          } else if (reportData.stage === 2 && reportData.teacher_id === user.id) {
-            setCommentType("teacher");
+          // 반려된 보고서의 경우, 이전 단계로 돌아가서 다시 코멘트를 쓸 수 있음
+          if (reportData.rejected_at) {
+            // 반려된 보고서는 이전 단계로 돌아감
+            if (reportData.teacher_id === user.id) {
+              setCommentType("teacher");
+            } else if (reportData.time_teacher_id === user.id) {
+              setCommentType("time_teacher");
+            }
+          } else {
+            // 정상 진행 중인 보고서
+            if (reportData.stage === 1 && reportData.time_teacher_id === user.id) {
+              setCommentType("time_teacher");
+            } else if (reportData.stage === 2 && reportData.teacher_id === user.id) {
+              setCommentType("teacher");
+            }
           }
         }
       } else {
@@ -123,6 +134,12 @@ export default function CommentPage() {
   const hasPermission = () => {
     if (!report || !user) return false;
 
+    // 반려된 보고서의 경우, 담당자라면 코멘트를 다시 쓸 수 있음
+    if (report.rejected_at) {
+      return report.time_teacher_id === user.id || report.teacher_id === user.id;
+    }
+
+    // 정상 진행 중인 보고서
     if (report.stage === 1 && report.time_teacher_id === user.id) {
       return true;
     }

@@ -269,17 +269,18 @@ export default function RefinePage() {
             title={
               <div className="flex items-center space-x-2">
                 <RobotOutlined />
-                <span>AI 요약</span>
+                <span>학원 분석 결과지</span>
                 {summary && <Tag color="green">생성됨</Tag>}
               </div>
             }
             className="mb-6"
           >
-            {!summary ? (
+            {!report.result && !summary && report.draft_status !== "completed" ? (
               <div className="text-center py-8">
                 <RobotOutlined style={{ fontSize: 48, color: "#d9d9d9", marginBottom: 16 }} />
                 <p className="text-gray-500 mb-4">
-                  AI를 통해 학생 응답과 교사 코멘트를 종합하여 요약을 생성할 수 있습니다.
+                  AI를 통해 학생 응답과 교사 코멘트를 종합하여 학원 분석 결과지를 생성할 수
+                  있습니다.
                 </p>
                 <Button
                   type="primary"
@@ -287,75 +288,58 @@ export default function RefinePage() {
                   onClick={handleGenerateSummary}
                   loading={generating}
                 >
-                  AI 요약 생성
+                  학원 분석 결과지 생성
                 </Button>
               </div>
             ) : (
-              <div className="space-y-6">
-                {/* 학생 응답 요약 */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <Text strong>학생 응답 요약</Text>
+              <div className="space-y-4">
+                {/* 재생성 버튼 - 완료된 상태에서만 표시 */}
+                {report.draft_status === "completed" && (
+                  <div className="flex justify-end mb-4">
                     <Button
-                      size="small"
-                      icon={<CopyOutlined />}
-                      onClick={() => copyToClipboard(summary.studentSummary)}
+                      type="primary"
+                      icon={generating ? <LoadingOutlined /> : <RobotOutlined />}
+                      onClick={handleGenerateSummary}
+                      loading={generating}
                     >
-                      복사
+                      재생성
                     </Button>
                   </div>
-                  <Card size="small" className="bg-blue-50">
-                    <Paragraph className="mb-0">{summary.studentSummary}</Paragraph>
+                )}
+
+                {/* 학원 분석 결과지 */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <Text strong>NK학원 분석 결과지</Text>
+                    {(report.result || summary?.overallSummary) && (
+                      <Button
+                        size="small"
+                        icon={<CopyOutlined />}
+                        onClick={() =>
+                          copyToClipboard(report.result || summary?.overallSummary || "")
+                        }
+                      >
+                        복사
+                      </Button>
+                    )}
+                  </div>
+                  <Card size="small" className="bg-white border-2">
+                    <div className="whitespace-pre-line font-mono text-sm">
+                      {report.result || summary?.overallSummary || "AI 분석 결과가 없습니다."}
+                    </div>
                   </Card>
                 </div>
 
-                {/* 교사 코멘트 요약 */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <Text strong>교사 코멘트 요약</Text>
-                    <Button
-                      size="small"
-                      icon={<CopyOutlined />}
-                      onClick={() => copyToClipboard(summary.overallSummary)}
-                    >
-                      복사
-                    </Button>
-                  </div>
-                  <Card size="small" className="bg-green-50">
-                    <Paragraph className="mb-0">{summary.overallSummary}</Paragraph>
-                  </Card>
-                </div>
-
-                {/* 인사이트 */}
-                <div>
-                  <Text strong>주요 인사이트</Text>
-                  <Collapse className="mt-2">
-                    <Panel header="강점" key="strengths">
-                      <List
-                        size="small"
-                        dataSource={summary.insights.strengths}
-                        renderItem={(item) => <List.Item>{item}</List.Item>}
-                      />
-                    </Panel>
-                    <Panel header="개선점" key="weaknesses">
-                      <List
-                        size="small"
-                        dataSource={summary.insights.weaknesses}
-                        renderItem={(item) => <List.Item>{item}</List.Item>}
-                      />
-                    </Panel>
-                    <Panel header="권장사항" key="recommendations">
-                      <List
-                        size="small"
-                        dataSource={summary.insights.recommendations}
-                        renderItem={(item) => <List.Item>{item}</List.Item>}
-                      />
-                    </Panel>
-                  </Collapse>
-                </div>
-
+                {/* 생성일 표시 */}
                 <div className="text-center text-gray-500 text-sm">
-                  <Text>생성일: {formatDate(summary.generatedAt)}</Text>
+                  <Text>
+                    생성일:{" "}
+                    {report.result
+                      ? formatDate(report.updated_at || "")
+                      : summary?.generatedAt
+                      ? formatDate(summary.generatedAt)
+                      : "생성되지 않음"}
+                  </Text>
                 </div>
               </div>
             )}

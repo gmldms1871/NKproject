@@ -127,6 +127,12 @@ export default function ReportsPage() {
     setFilterVisible(false);
   };
 
+  const resetFilters = () => {
+    setSearchText("");
+    setFilters({});
+    setFilteredReports(reports);
+  };
+
   const filterReports = (search: string, filterConditions: ReportSearchConditions) => {
     let filtered = reports;
 
@@ -142,7 +148,7 @@ export default function ReportsPage() {
 
     // 단계별 필터링
     if (activeTab === "in-progress") {
-      filtered = filtered.filter((report) => report.stage !== 3 && !report.rejected_at);
+      filtered = filtered.filter((report) => report.stage !== 3);
     } else if (activeTab === "completed") {
       filtered = filtered.filter((report) => report.stage === 3);
     }
@@ -303,7 +309,7 @@ export default function ReportsPage() {
               onClick={() => router.push(`/groups/${groupId}/reports/${record.id}`)}
             />
           </Tooltip>
-          {record.progressInfo.canEdit && (
+          {(record.progressInfo.canEdit || record.rejected_at) && (
             <Tooltip title="코멘트 작성">
               <Button
                 size="small"
@@ -432,7 +438,7 @@ export default function ReportsPage() {
         <span>
           진행중인 보고서
           <Badge
-            count={filteredReports.filter((r) => r.stage !== 3 && !r.rejected_at).length}
+            count={filteredReports.filter((r) => r.stage !== 3).length}
             style={{ marginLeft: 8 }}
           />
         </span>
@@ -451,11 +457,14 @@ export default function ReportsPage() {
               <Button icon={<FilterOutlined />} onClick={() => setFilterVisible(true)}>
                 필터
               </Button>
+              <Button size="small" onClick={resetFilters}>
+                초기화
+              </Button>
             </div>
           </div>
           <Table
             columns={getColumns()}
-            dataSource={filteredReports.filter((r) => r.stage !== 3 && !r.rejected_at)}
+            dataSource={filteredReports.filter((r) => r.stage !== 3)}
             rowKey="id"
             loading={loading}
             pagination={{
@@ -492,6 +501,9 @@ export default function ReportsPage() {
               />
               <Button icon={<FilterOutlined />} onClick={() => setFilterVisible(true)}>
                 필터
+              </Button>
+              <Button size="small" onClick={resetFilters}>
+                초기화
               </Button>
             </div>
           </div>

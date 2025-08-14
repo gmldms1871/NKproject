@@ -44,10 +44,12 @@ import {
   FormOutlined,
   UserOutlined,
   BarChartOutlined,
+  DashboardOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
 import InviteModal from "@/components/InviteModal";
+import Dashboard from "@/components/Dashboard";
 import {
   getGroupMembers,
   getGroupRoles,
@@ -692,6 +694,16 @@ export default function GroupDetailPage() {
 
   const tabItems = [
     {
+      key: "dashboard",
+      label: (
+        <span>
+          <DashboardOutlined />
+          대시보드
+        </span>
+      ),
+      children: <Dashboard groupId={groupId} userId={user?.id || ""} isOwner={isOwner} />,
+    },
+    {
       key: "members",
       label: `멤버 (${members.length})`,
       children: (
@@ -709,31 +721,6 @@ export default function GroupDetailPage() {
             )}
           </div>
           <Table columns={membersColumns} dataSource={members} rowKey="id" pagination={false} />
-        </div>
-      ),
-    },
-    {
-      key: "reports",
-      label: "보고서",
-      children: (
-        <div>
-          <div className="mb-4 flex justify-between">
-            <h3 className="text-lg font-medium">보고서 관리</h3>
-            <Button
-              type="primary"
-              icon={<FileTextOutlined />}
-              onClick={() => router.push(`/groups/${groupId}/reports`)}
-            >
-              보고서 보기
-            </Button>
-          </div>
-          <div className="text-center py-8">
-            <FileTextOutlined style={{ fontSize: 48, color: "#d9d9d9", marginBottom: 16 }} />
-            <p className="text-gray-500 mb-4">그룹의 모든 보고서를 관리할 수 있습니다.</p>
-            <Button type="primary" onClick={() => router.push(`/groups/${groupId}/reports`)}>
-              보고서 목록 보기
-            </Button>
-          </div>
         </div>
       ),
     },
@@ -1008,7 +995,7 @@ export default function GroupDetailPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* 탭 컨텐츠 */}
         <Card>
-          <Tabs defaultActiveKey="members" items={tabItems} />
+          <Tabs defaultActiveKey="dashboard" items={tabItems} />
         </Card>
 
         {/* 새로운 초대 모달 */}

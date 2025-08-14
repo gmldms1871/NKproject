@@ -137,6 +137,7 @@ export interface ReportWithDetails {
   rejected_by: string | null;
   rejection_reason: string | null;
   draft_status: string | null;
+  result: string | null;
   created_at: string | null;
   updated_at: string | null;
   // 연결된 정보
@@ -395,13 +396,23 @@ async function collectFormResponseData(formResponseId: string): Promise<FormResp
  */
 async function generateAISummary(prompt: string): Promise<string> {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    // 최신 모델 사용 (gemini-1.5-pro 또는 gemini-1.5-flash)
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const result = await model.generateContent(prompt);
     const response = await result.response;
     return response.text();
   } catch (error) {
     console.error("Error generating AI summary:", error);
-    return "AI 요약 생성 중 오류가 발생했습니다.";
+    // 에러 발생 시 대체 모델 시도
+    try {
+      const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
+      const result = await fallbackModel.generateContent(prompt);
+      const response = await result.response;
+      return response.text();
+    } catch (fallbackError) {
+      console.error("Fallback model also failed:", fallbackError);
+      return "AI 요약 생성 중 오류가 발생했습니다.";
+    }
   }
 }
 
@@ -416,51 +427,95 @@ function renderPrompt(template: string, variables: Record<string, unknown>): str
   return rendered;
 }
 
-// 프롬프트 템플릿들
-const STUDENT_SUMMARY_PROMPT = `
-다음 학생의 폼 응답을 분석하여 요약해주세요:
+// 학원 분석 결과지 프롬프트 템플릿
+const ACADEMY_ANALYSIS_REPORT_PROMPT = `
+당신은 학원 성적 분석 전문 보고서 작성자이며, 독자가 읽었을 때 구체적이고 설득력 있는 내용을 작성하는 것이 목표입니다.
 
-학생: {{studentName}}
-반: {{className}}
+당신의 보고서는 부모님과 학생 모두가 이해할 수 있도록 **객관적인 수치, 구체적인 예시, 행동 계획**을 포함해야 합니다.
+
+[작성 절차]
+1단계: 입력된 학생 데이터를 분석하고, 강점과 약점을 각각 최소 3개씩 도출
+2단계: 강점은 칭찬과 근거를 함께 작성, 약점은 원인·사례·영향을 함께 작성
+3단계: 각 강점/약점에 별점 척도(★~★★★★★) 부여
+4단계: 약점을 개선하기 위한 지도 계획을 3개 이상 작성
+5단계: 종합의견에서는 '현재 상태 → 원인 분석 → 개선 방향 → 기대 효과' 순서로 하나의 문단 작성
+6단계: 모든 내용이 구체적이고 실천 가능하도록 보완
+
+[입력 데이터]
+■ 기본 정보
+학생명: {{studentName}}
+반명: {{className}}
+폼 제목: {{formTitle}}
 제출일: {{submittedAt}}
 
-응답 내용:
+■ 학생 응답 내용
 {{studentResponses}}
 
-요약 요청사항:
-1. 학생의 주요 응답 내용을 간결하게 정리해주세요
-2. 학생의 이해도와 참여도를 평가해주세요
-3. 특별히 주목할 만한 응답이 있다면 언급해주세요
-
-한국어로 3-4문장으로 요약해주세요.
-`;
-
-const TEACHER_COMMENT_SUMMARY_PROMPT = `
-다음 교사 코멘트를 요약해주세요:
-
+■ 교사 코멘트
 시간강사 코멘트: {{timeTeacherComment}}
 선생님 코멘트: {{teacherComment}}
 
-요약 요청사항:
-1. 교사들의 주요 피드백을 정리해주세요
-2. 학생에 대한 종합적인 평가를 요약해주세요
-3. 개선점이나 권장사항이 있다면 정리해주세요
+[형식]
+[NK학원 분석 결과지]
 
-한국어로 2-3문장으로 요약해주세요.
-`;
+■ 날짜: {{formattedDate}}
+■ 시험종류: {{formTitle}}
+■ 이름: {{studentName}} (반명: {{className}})
+■ 제출일: {{submittedAt}}
 
-const OVERALL_SUMMARY_PROMPT = `
-다음 보고서 정보를 종합하여 전체 요약을 작성해주세요:
+■ 학생 통합 분석
+▷ 강점
+1. [강점 제목] ★★★★☆
+   (구체적인 칭찬과 근거를 포함하여 작성)
 
-학생 응답 요약: {{studentSummary}}
-교사 코멘트 요약: {{teacherSummary}}
+2. [강점 제목] ★★★★☆
+   (구체적인 칭찬과 근거를 포함하여 작성)
 
-요약 요청사항:
-1. 학생의 전반적인 성과를 평가해주세요
-2. 강점과 개선점을 명확히 제시해주세요
-3. 향후 학습 방향을 제안해주세요
+3. [강점 제목] ★★★★☆
+   (구체적인 칭찬과 근거를 포함하여 작성)
 
-한국어로 4-5문장으로 종합 요약해주세요.
+▷ 약점
+1. [약점 제목] ★★☆☆☆
+   (원인·구체적 사례·영향을 포함하여 작성)
+
+2. [약점 제목] ★★☆☆☆
+   (원인·구체적 사례·영향을 포함하여 작성)
+
+3. [약점 제목] ★★☆☆☆
+   (원인·구체적 사례·영향을 포함하여 작성)
+
+■ 앞으로의 지도 계획
+1. [구체적인 지도 방향]
+   - 실행 방법: (구체적인 방법 제시)
+   - 예상 소요 기간: (기간 명시)
+   - 기대 효과: (개선될 것으로 예상되는 부분)
+
+2. [구체적인 지도 방향]
+   - 실행 방법: (구체적인 방법 제시)
+   - 예상 소요 기간: (기간 명시)
+   - 기대 효과: (개선될 것으로 예상되는 부분)
+
+3. [구체적인 지도 방향]
+   - 실행 방법: (구체적인 방법 제시)
+   - 예상 소요 기간: (기간 명시)
+   - 기대 효과: (개선될 것으로 예상되는 부분)
+
+■ 담임 종합의견
+(현재 상태 → 원인 분석 → 개선 방향 → 기대 효과 순서로 하나의 문단으로 작성)
+
+[검증 기준]
+- 수치와 분석 내용이 일치하는가?
+- 강점/약점에 구체적 사례가 있는가?
+- 지도 계획이 실제로 실행 가능한가?
+- 종합의견이 논리적 흐름을 갖췄는가?
+
+주의사항:
+- 모든 내용은 학생 응답과 교사 코멘트를 바탕으로 작성
+- 객관적이고 구체적인 내용으로 작성
+- 학부모가 이해하기 쉽도록 명확하게 작성
+- 긍정적인 면과 개선점을 균형있게 제시
+- 수치나 구체적인 예시가 있다면 반드시 포함
+- 실천 가능한 행동 계획을 제시
 `;
 
 // ===== 핵심 보고서 관리 함수들 =====
@@ -484,19 +539,22 @@ export async function advanceReportStage(
       return { success: false, error: "보고서를 찾을 수 없습니다." };
     }
 
-    if (currentReport.rejected_at) {
-      return { success: false, error: "반려된 보고서는 단계를 올릴 수 없습니다." };
-    }
-
     const currentStage = currentReport.stage || 0;
     let newStage = currentStage;
     const updateData: Partial<ReportUpdate> = {
       updated_at: new Date().toISOString(),
     };
 
+    // 반려된 보고서의 경우 rejected_at을 null로 설정하여 다시 진행할 수 있도록 함
+    if (currentReport.rejected_at) {
+      updateData.rejected_at = null;
+      updateData.rejection_reason = null;
+    }
+
     // 코멘트 타입에 따른 단계 진행
     if (request.commentType === "time_teacher") {
-      if (currentStage !== 1) {
+      // 반려된 보고서의 경우 단계 검증을 완화
+      if (!currentReport.rejected_at && currentStage !== 1) {
         return { success: false, error: "시간강사 검토 단계가 아닙니다." };
       }
 
@@ -510,7 +568,8 @@ export async function advanceReportStage(
       updateData.time_teacher_completed_at = new Date().toISOString();
       updateData.time_teacher_id = request.userId; // 시간강사 ID 설정
     } else if (request.commentType === "teacher") {
-      if (currentStage !== 2) {
+      // 반려된 보고서의 경우 단계 검증을 완화
+      if (!currentReport.rejected_at && currentStage !== 2) {
         return { success: false, error: "선생님 검토 단계가 아닙니다." };
       }
 
@@ -542,18 +601,21 @@ export async function advanceReportStage(
       // 선생님에게 알림
       const { data: report } = await supabaseAdmin
         .from("reports")
-        .select("teacher_id, student_name")
+        .select("teacher_id, student_name, forms(group_id)")
         .eq("id", request.reportId)
         .single();
 
       if (report?.teacher_id) {
+        const groupId = report.forms?.group_id;
         await createNotification({
           target_id: report.teacher_id,
           creator_id: request.userId,
           type: "report_stage_advanced",
           title: "보고서 검토 요청",
           content: `${report.student_name} 학생의 보고서 검토가 요청되었습니다.`,
-          action_url: `/reports/${request.reportId}`,
+          action_url: groupId
+            ? `/groups/${groupId}/reports/${request.reportId}`
+            : `/reports/${request.reportId}`,
           related_id: request.reportId,
           is_read: false,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -563,18 +625,21 @@ export async function advanceReportStage(
       // 최종 완료 알림
       const { data: report } = await supabaseAdmin
         .from("reports")
-        .select("form_responses(student_id), student_name")
+        .select("form_responses(student_id), student_name, forms(group_id)")
         .eq("id", request.reportId)
         .single();
 
       if (report?.form_responses?.student_id) {
+        const groupId = report.forms?.group_id;
         await createNotification({
           target_id: report.form_responses.student_id,
           creator_id: request.userId,
           type: "report_completed",
           title: "보고서가 완료되었습니다",
           content: `${report.student_name} 학생의 보고서 검토가 완료되었습니다.`,
-          action_url: `/reports/${request.reportId}`,
+          action_url: groupId
+            ? `/groups/${groupId}/reports/${request.reportId}`
+            : `/reports/${request.reportId}`,
           related_id: request.reportId,
           is_read: false,
           expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -654,18 +719,21 @@ export async function rejectReport(request: RejectReportRequest): Promise<ApiRes
     // 보고서 반려 알림
     const { data: report } = await supabaseAdmin
       .from("reports")
-      .select("form_responses(student_id), student_name")
+      .select("form_responses(student_id), student_name, forms(group_id)")
       .eq("id", request.reportId)
       .single();
 
     if (report?.form_responses?.student_id) {
+      const groupId = report.forms?.group_id;
       await createNotification({
         target_id: report.form_responses.student_id,
         creator_id: request.rejectedBy,
         type: "report_rejected",
         title: "보고서가 반려되었습니다",
         content: `반려 사유: ${request.rejectionReason}`,
-        action_url: `/reports/${request.reportId}`,
+        action_url: groupId
+          ? `/groups/${groupId}/reports/${request.reportId}`
+          : `/reports/${request.reportId}`,
         related_id: request.reportId,
         is_read: false,
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -707,18 +775,21 @@ export async function resetReportToFormState(
     // 보고서 리셋 알림 (학생에게 다시 작성하라고 알림)
     const { data: report } = await supabaseAdmin
       .from("reports")
-      .select("form_responses(student_id), student_name")
+      .select("form_responses(student_id), student_name, forms(group_id)")
       .eq("id", request.reportId)
       .single();
 
     if (report?.form_responses?.student_id) {
+      const groupId = report.forms?.group_id;
       await createNotification({
         target_id: report.form_responses.student_id,
         creator_id: request.resetBy,
         type: "report_reset",
         title: "폼 재작성 요청",
         content: `${request.resetReason} - 폼을 다시 작성해주세요.`,
-        action_url: `/reports/${request.reportId}`,
+        action_url: groupId
+          ? `/groups/${groupId}/reports/${request.reportId}`
+          : `/reports/${request.reportId}`,
         related_id: request.reportId,
         is_read: false,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
@@ -827,6 +898,7 @@ export async function getGroupReports(
         rejected_by: report.rejected_by,
         rejection_reason: report.rejection_reason,
         draft_status: report.draft_status,
+        result: report.result,
         created_at: report.created_at,
         updated_at: report.updated_at,
         form: report.forms
@@ -1077,28 +1149,24 @@ export async function generateReportSummary(
       )
       .join("\n");
 
-    // 1. 학생 결과 요약
-    const studentPrompt = renderPrompt(STUDENT_SUMMARY_PROMPT, {
+    // 학원 분석 결과지 생성
+    const formattedDate = new Date().toLocaleDateString("ko-KR", {
+      month: "2-digit",
+      day: "2-digit",
+      weekday: "short",
+    });
+
+    const analysisPrompt = renderPrompt(ACADEMY_ANALYSIS_REPORT_PROMPT, {
       studentName: report.student_name || "Unknown",
       className: report.class_name || "",
+      formTitle: report.forms?.title || "폼",
       submittedAt: formResponseData.submitted_at || "",
+      formattedDate,
       studentResponses: studentResponsesText,
-    });
-    const studentSummary = await generateAISummary(studentPrompt);
-
-    // 2. 교사 코멘트 요약
-    const teacherPrompt = renderPrompt(TEACHER_COMMENT_SUMMARY_PROMPT, {
       timeTeacherComment: report.time_teacher_comment || "코멘트 없음",
       teacherComment: report.teacher_comment || "코멘트 없음",
     });
-    const teacherSummary = await generateAISummary(teacherPrompt);
-
-    // 3. 종합 요약
-    const overallPrompt = renderPrompt(OVERALL_SUMMARY_PROMPT, {
-      studentSummary,
-      teacherSummary,
-    });
-    const overallSummary = await generateAISummary(overallPrompt);
+    const academyAnalysisReport = await generateAISummary(analysisPrompt);
 
     // 인사이트 추출 (간단한 예시 - 실제로는 더 정교한 분석 필요)
     const insights = {
@@ -1109,10 +1177,10 @@ export async function generateReportSummary(
 
     const summary: GeneratedSummary = {
       reportId: request.reportId,
-      studentSummary,
+      studentSummary: academyAnalysisReport,
       timeTeacherSummary: report.time_teacher_comment || "",
       teacherSummary: report.teacher_comment || "",
-      overallSummary,
+      overallSummary: academyAnalysisReport,
       insights,
       generatedAt: new Date().toISOString(),
       generatedBy: request.userId,
@@ -1121,10 +1189,11 @@ export async function generateReportSummary(
     // 메모리에 저장 (실제로는 데이터베이스에 저장)
     reportSummaries.set(request.reportId, summary);
 
-    // AI 정제 완료 시 draft_status를 completed로 변경
+    // AI 정제 완료 시 result 필드에 저장하고 draft_status를 completed로 변경
     const { error: updateError } = await supabaseAdmin
       .from("reports")
       .update({
+        result: academyAnalysisReport,
         draft_status: "completed",
         updated_at: new Date().toISOString(),
       })
@@ -1331,6 +1400,7 @@ export async function getReportDetails(reportId: string): Promise<ApiResponse<Re
       progressInfo: calculateProgressInfo(report),
       hasSummary: reportSummaries.has(report.id),
       summaryGeneratedAt: reportSummaries.get(report.id)?.generatedAt,
+      result: report.result,
     };
 
     return { success: true, data: reportWithDetails };

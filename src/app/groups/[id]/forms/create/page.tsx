@@ -500,6 +500,7 @@ export default function FormCreatePage() {
   const [sendTargets, setSendTargets] = useState<Array<{ type: "class" | "user"; id: string }>>([]);
   const [formStatus, setFormStatus] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [deletedQuestionIds, setDeletedQuestionIds] = useState<string[]>([]);
 
   // 드래그 앤 드롭 센서 설정
   const sensors = useSensors(
@@ -756,9 +757,15 @@ export default function FormCreatePage() {
 
   // 질문 삭제
   const deleteQuestion = (index: number) => {
+    const questionToDelete = questions[index];
     const newQuestions = questions.filter((_, i) => i !== index);
     const reorderedQuestions = newQuestions.map((q, i) => ({ ...q, orderIndex: i }));
     setQuestions(reorderedQuestions);
+
+    // 삭제된 질문의 ID를 추적하여 나중에 데이터베이스에서 삭제
+    if (questionToDelete.id && !questionToDelete.isNew) {
+      setDeletedQuestionIds((prev) => [...prev, questionToDelete.id!]);
+    }
 
     if (expandedQuestionIndex === index) {
       setExpandedQuestionIndex(null);
@@ -867,7 +874,43 @@ export default function FormCreatePage() {
         }
       }
 
-      // 3. 질문 저장/업데이트
+      // 3. 삭제된 질문들 처리 (데이터베이스에서 실제 삭제)
+      if (deletedQuestionIds.length > 0) {
+        for (const questionId of deletedQuestionIds) {
+          try {
+            // 질문 타입에 따라 관련 테이블에서도 삭제
+            const { data: question } = await supabaseAdmin
+              .from("form_questions")
+              .select("question_type")
+              .eq("id", questionId)
+              .single();
+
+            if (question) {
+              // 질문 타입별 관련 데이터 삭제
+              if (question.question_type === "rating") {
+                await supabaseAdmin.from("rating_questions").delete().eq("question_id", questionId);
+              } else if (question.question_type === "choice") {
+                // 선택지 옵션들 삭제
+                await supabaseAdmin.from("choice_options").delete().eq("question_id", questionId);
+
+                // 객관식 질문 정보 삭제
+                await supabaseAdmin.from("choice_questions").delete().eq("question_id", questionId);
+              } else if (question.question_type === "exam") {
+                await supabaseAdmin.from("exam_questions").delete().eq("question_id", questionId);
+              }
+
+              // 메인 질문 삭제
+              await supabaseAdmin.from("form_questions").delete().eq("id", questionId);
+            }
+          } catch (error) {
+            console.error(`질문 삭제 중 오류 발생 (ID: ${questionId}):`, error);
+          }
+        }
+        // 삭제된 질문 ID 목록 초기화
+        setDeletedQuestionIds([]);
+      }
+
+      // 4. 질문 저장/업데이트
       for (let i = 0; i < questions.length; i++) {
         const question = questions[i];
 

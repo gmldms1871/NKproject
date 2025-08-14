@@ -2053,3 +2053,64 @@ export async function updateReportsWithSupervision(formId: string): Promise<ApiR
     return { success: false, error: "리포트 담당자 정보 업데이트 중 오류가 발생했습니다." };
   }
 }
+
+export async function deleteQuestion(questionId: string): Promise<ApiResponse<boolean>> {
+  try {
+    // 질문 타입에 따라 관련 테이블에서도 삭제
+    const { data: question } = await supabaseAdmin
+      .from("form_questions")
+      .select("question_type")
+      .eq("id", questionId)
+      .single();
+
+    if (!question) {
+      return { success: false, error: "질문을 찾을 수 없습니다." };
+    }
+
+    // 질문 타입별 관련 데이터 삭제
+    if (question.question_type === "rating") {
+      const { error: ratingError } = await supabaseAdmin
+        .from("rating_questions")
+        .delete()
+        .eq("question_id", questionId);
+
+      if (ratingError) throw ratingError;
+    } else if (question.question_type === "choice") {
+      // 선택지 옵션들 삭제
+      const { error: optionsError } = await supabaseAdmin
+        .from("choice_options")
+        .delete()
+        .eq("question_id", questionId);
+
+      if (optionsError) throw optionsError;
+
+      // 객관식 질문 정보 삭제
+      const { error: choiceError } = await supabaseAdmin
+        .from("choice_questions")
+        .delete()
+        .eq("question_id", questionId);
+
+      if (choiceError) throw choiceError;
+    } else if (question.question_type === "exam") {
+      const { error: examError } = await supabaseAdmin
+        .from("exam_questions")
+        .delete()
+        .eq("question_id", questionId);
+
+      if (examError) throw examError;
+    }
+
+    // 메인 질문 삭제
+    const { error: questionError } = await supabaseAdmin
+      .from("form_questions")
+      .delete()
+      .eq("id", questionId);
+
+    if (questionError) throw questionError;
+
+    return { success: true, data: true };
+  } catch (error) {
+    console.error("Error deleting question:", error);
+    return { success: false, error: "질문 삭제 중 오류가 발생했습니다." };
+  }
+}
