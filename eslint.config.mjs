@@ -17,6 +17,8 @@ export default [
       "no-unused-vars": "off",
       // TS unused-vars 룰 끄기
       "@typescript-eslint/no-unused-vars": "off",
+      // TS no-explicit-any 룰 끄기
+      "@typescript-eslint/no-explicit-any": "off",
 
       // 기타 기존 설정
       semi: "off",

@@ -1024,6 +1024,7 @@ export async function searchReports(
       form_id: report.form_id,
       form_response_id: report.form_response_id,
       stage: report.stage,
+      result: report.result || null, // Use report.result or null to satisfy ReportWithDetails type
       student_name: report.student_name,
       class_name: report.class_name,
       teacher_id: report.teacher_id,

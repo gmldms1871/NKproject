@@ -34,7 +34,7 @@ import {
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
-import { getReportDetails, ReportWithDetails } from "@/lib/reports";
+import { getReportDetails, ReportWithDetails, FormResponseData } from "@/lib/reports";
 import { formatDate } from "@/lib/utils";
 
 const { Title, Text, Paragraph } = Typography;
@@ -59,7 +59,7 @@ export default function ReportDetailPage() {
       { title: "보고서", href: `/groups/${groupId}/reports` },
       { title: "상세", href: `/groups/${groupId}/reports/${reportId}` },
     ]);
-  }, [groupId, reportId]);
+  }, [groupId, reportId, setTitle, setBreadcrumbs]);
 
   // 데이터 로드
   const loadReport = useCallback(async () => {
@@ -91,7 +91,7 @@ export default function ReportDetailPage() {
     if (reportId) {
       loadReport();
     }
-  }, [user, reportId, loadReport]);
+  }, [user, reportId, loadReport, router]);
 
   // 단계별 색상 및 아이콘
   const getStageInfo = (stage: number, rejected: boolean) => {
@@ -154,7 +154,7 @@ export default function ReportDetailPage() {
   };
 
   // 학생 응답 렌더링
-  const renderStudentResponse = (response: any) => {
+  const renderStudentResponse = (response: FormResponseData) => {
     if (!response) return null;
 
     return (

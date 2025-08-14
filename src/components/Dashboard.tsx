@@ -32,9 +32,10 @@ interface DashboardProps {
   groupId: string;
   userId: string;
   isOwner: boolean;
+  activeTab: string;
 }
 
-export default function Dashboard({ groupId, userId, isOwner }: DashboardProps) {
+export default function Dashboard({ groupId, userId, isOwner, activeTab }: DashboardProps) {
   const [statistics, setStatistics] = useState<GroupStatistics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +91,9 @@ export default function Dashboard({ groupId, userId, isOwner }: DashboardProps) 
     );
   }
 
+  // 대시보드 탭이 활성화되지 않았으면 차트를 렌더링하지 않음
+  const isDashboardActive = activeTab === "dashboard";
+
   // 월별 통계 차트 데이터
   const monthlyChartData = statistics.monthlyStats.map((stat) => ({
     month: stat.month,
@@ -106,39 +110,6 @@ export default function Dashboard({ groupId, userId, isOwner }: DashboardProps) 
 
   // 차트 색상
   const COLORS = ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#8884D8"];
-
-  // 클래스별 통계 테이블 컬럼
-  const classColumns = [
-    {
-      title: "클래스명",
-      dataIndex: "className",
-      key: "className",
-    },
-    {
-      title: "멤버 수",
-      dataIndex: "memberCount",
-      key: "memberCount",
-      render: (value: number) => <span className="font-medium">{value}명</span>,
-    },
-    {
-      title: "응답 수",
-      dataIndex: "responseCount",
-      key: "responseCount",
-      render: (value: number) => <span className="font-medium">{value}개</span>,
-    },
-    {
-      title: "완료율",
-      dataIndex: "completionRate",
-      key: "completionRate",
-      render: (value: number) => (
-        <Progress
-          percent={value}
-          size="small"
-          status={value >= 80 ? "success" : value >= 50 ? "normal" : "exception"}
-        />
-      ),
-    },
-  ];
 
   // 폼별 통계 테이블 컬럼
   const formColumns = [
@@ -293,119 +264,89 @@ export default function Dashboard({ groupId, userId, isOwner }: DashboardProps) 
       </Row>
 
       {/* 월별 통계 차트 */}
-      <Card title="월별 활동 통계" className="mb-6">
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={monthlyChartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="폼 생성" stroke="#8884d8" strokeWidth={2} />
-              <Line type="monotone" dataKey="응답 수신" stroke="#82ca9d" strokeWidth={2} />
-              <Line type="monotone" dataKey="보고서 완료" stroke="#ffc658" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
-
-      {/* 클래스별 통계 */}
-      <Card title="클래스별 통계" className="mb-6">
-        {statistics.classStats.length > 0 ? (
-          <div className="space-y-6">
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={statistics.classStats}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="className"
-                    angle={-45}
-                    textAnchor="end"
-                    height={80}
-                    interval={0}
-                  />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="memberCount" fill="#8884d8" name="멤버 수" />
-                  <Bar dataKey="responseCount" fill="#82ca9d" name="응답 수" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <Table
-              columns={classColumns}
-              dataSource={statistics.classStats}
-              rowKey="classId"
-              pagination={false}
-              size="small"
-            />
+      {isDashboardActive && (
+        <Card title="월별 활동 통계" className="mb-6">
+          <div style={{ width: "100%", height: 320 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={monthlyChartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="폼 생성" stroke="#8884d8" strokeWidth={2} />
+                <Line type="monotone" dataKey="응답 수신" stroke="#82ca9d" strokeWidth={2} />
+                <Line type="monotone" dataKey="보고서 완료" stroke="#ffc658" strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
-        ) : (
-          <Empty description="클래스 데이터가 없습니다." />
-        )}
-      </Card>
+        </Card>
+      )}
 
       {/* 폼별 통계 */}
-      <Card title="폼별 응답 통계" className="mb-6">
-        {statistics.formStats.length > 0 ? (
-          <div className="space-y-6">
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={statistics.formStats}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="formTitle"
-                    angle={-45}
-                    textAnchor="end"
-                    height={80}
-                    interval={0}
-                  />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="totalResponses" fill="#8884d8" name="응답 수" />
-                  <Bar dataKey="completionRate" fill="#82ca9d" name="완료율 (%)" />
-                </BarChart>
-              </ResponsiveContainer>
+      {isDashboardActive && (
+        <Card title="폼별 응답 통계" className="mb-6">
+          {statistics.formStats.length > 0 ? (
+            <div className="space-y-6">
+              <div style={{ width: "100%", height: 320 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={statistics.formStats}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="formTitle"
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                      interval={0}
+                    />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="totalResponses" fill="#8884d8" name="응답 수" />
+                    <Bar dataKey="completionRate" fill="#82ca9d" name="완료율 (%)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <Table
+                columns={formColumns}
+                dataSource={statistics.formStats}
+                rowKey="formId"
+                pagination={false}
+                size="small"
+              />
             </div>
-            <Table
-              columns={formColumns}
-              dataSource={statistics.formStats}
-              rowKey="formId"
-              pagination={false}
-              size="small"
-            />
-          </div>
-        ) : (
-          <Empty description="폼 데이터가 없습니다." />
-        )}
-      </Card>
+          ) : (
+            <Empty description="폼 데이터가 없습니다." />
+          )}
+        </Card>
+      )}
 
       {/* 역할별 통계 */}
-      <Card title="역할별 멤버 통계" className="mb-6">
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={roleChartData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={100}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {roleChartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
+      {isDashboardActive && (
+        <Card title="역할별 멤버 통계" className="mb-6">
+          <div style={{ width: "100%", height: 320 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={roleChartData}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => `${name} ${(percent || 0 * 100).toFixed(0)}%`}
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {roleChartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+      )}
     </Card>
   );
 }

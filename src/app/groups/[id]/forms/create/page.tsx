@@ -577,8 +577,8 @@ export default function FormCreatePage() {
     const subtitle = isEditing
       ? "기존 폼을 수정합니다"
       : isDuplicating
-      ? "기존 폼을 복제하여 새로운 폼을 생성합니다"
-      : "새로운 폼을 생성합니다";
+        ? "기존 폼을 복제하여 새로운 폼을 생성합니다"
+        : "새로운 폼을 생성합니다";
 
     setPageHeader({
       title,

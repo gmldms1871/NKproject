@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Modal,
-  Form,
   Input,
   Select,
   Button,
@@ -80,8 +79,6 @@ export default function InviteModal({
   const [selectedRole, setSelectedRole] = useState<string>("");
   const [pendingInvitation, setPendingInvitation] = useState(false);
 
-  const [searchForm] = Form.useForm();
-
   // owner 역할을 제외한 역할들
   const availableRoles = roles.filter((role) => role.name !== "owner");
 
@@ -93,9 +90,8 @@ export default function InviteModal({
       setSelectedRole("");
       setPendingInvitation(false);
       setActiveTab("search");
-      searchForm.resetFields();
     }
-  }, [open, searchForm]);
+  }, [open]);
 
   // 정확한 이메일/전화번호로 사용자 검색
   const handleExactSearch = useCallback(
@@ -232,12 +228,6 @@ export default function InviteModal({
     } finally {
       setLoading(false);
     }
-  };
-
-  // 전화번호 포맷팅 핸들러
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const formatted = formatPhoneNumber(e.target.value);
-    searchForm.setFieldValue("identifier", formatted);
   };
 
   const searchTabContent = (

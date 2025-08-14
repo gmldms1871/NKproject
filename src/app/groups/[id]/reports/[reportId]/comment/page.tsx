@@ -17,6 +17,7 @@ import {
   Row,
   Col,
   Descriptions,
+  Progress,
 } from "antd";
 import {
   ArrowLeftOutlined,
@@ -32,6 +33,7 @@ import {
   advanceReportStage,
   rejectReport,
   ReportWithDetails,
+  FormResponseData,
 } from "@/lib/reports";
 import { formatDate } from "@/lib/utils";
 
@@ -75,7 +77,7 @@ export default function CommentPage() {
       { title: "상세", href: `/groups/${groupId}/reports/${reportId}` },
       { title: "코멘트", href: `/groups/${groupId}/reports/${reportId}/comment` },
     ]);
-  }, [groupId, reportId]);
+  }, [groupId, reportId, setTitle, setBreadcrumbs]);
 
   // 데이터 로드
   const loadReport = useCallback(async () => {
@@ -128,7 +130,7 @@ export default function CommentPage() {
     if (reportId) {
       loadReport();
     }
-  }, [user, reportId, loadReport]);
+  }, [user, reportId, loadReport, router]);
 
   // 권한 확인
   const hasPermission = () => {
@@ -203,7 +205,7 @@ export default function CommentPage() {
   };
 
   // 학생 응답 렌더링
-  const renderStudentResponse = (response: FormResponse) => {
+  const renderStudentResponse = (response: FormResponseData) => {
     if (!response) return null;
 
     return (
@@ -223,7 +225,14 @@ export default function CommentPage() {
               )}
               {resp.response.ratingResponse !== undefined && (
                 <div className="flex items-center space-x-2">
-                  <Text>평점: {resp.response.ratingResponse}/5</Text>
+                  <Text>평점: </Text>
+                  <Progress
+                    percent={(resp.response.ratingResponse / 5) * 100}
+                    size="small"
+                    showInfo={false}
+                    strokeColor="#1890ff"
+                  />
+                  <Text>{resp.response.ratingResponse}/5</Text>
                 </div>
               )}
             </div>

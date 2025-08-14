@@ -31,7 +31,13 @@ let supabaseAdminInstance: ReturnType<typeof createClient<Database>> | null = nu
 // 클라이언트용 Supabase 인스턴스
 export const supabase = (() => {
   if (!supabaseInstance) {
-    supabaseInstance = createClient<Database>(supabaseUrl, supabaseAnonKey);
+    supabaseInstance = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true,
+      },
+    });
   }
   return supabaseInstance;
 })();

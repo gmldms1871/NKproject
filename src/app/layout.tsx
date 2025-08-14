@@ -32,6 +32,8 @@ export default function RootLayout({
               borderRadius: 6,
             },
           }}
+          componentSize="middle"
+          space={{ size: "middle" }}
         >
           <App>
             <AuthProvider>

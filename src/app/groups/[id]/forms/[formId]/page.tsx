@@ -233,14 +233,14 @@ export default function FormDetailPage() {
     if (formId) {
       loadFormData();
     }
-  }, [formId]);
+  }, [formId, loadFormData]);
 
   // 사용자 클래스 로드 (응답 모드에서만)
   useEffect(() => {
     if (form && isRespondMode && user && groupId) {
       loadUserClasses();
     }
-  }, [form, isRespondMode, user, groupId]);
+  }, [form, isRespondMode, user, groupId, loadUserClasses]);
 
   // 응답 데이터 업데이트
   const updateResponse = (questionId: string, value: string | number | number[]) => {

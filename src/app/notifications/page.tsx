@@ -76,8 +76,8 @@ export default function NotificationsPage() {
   const loadNotifications = useCallback(async () => {
     if (!user) return;
 
-    setLoading(true);
     try {
+      setLoading(true);
       const [notificationsResult, groupsResult] = await Promise.all([
         getUserNotifications(user.id),
         getMyGroups(user.id),
@@ -101,7 +101,7 @@ export default function NotificationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, messageApi]);
 
   const loadUnreadCount = useCallback(async () => {
     if (!user) return;
@@ -186,7 +186,7 @@ export default function NotificationsPage() {
     } catch (error) {
       messageApi.error("전체 읽음 처리 중 오류가 발생했습니다.");
     }
-  }, [user]);
+  }, [user, messageApi, updateUnreadCount]);
 
   // 페이지 헤더 설정
   useEffect(() => {

@@ -51,9 +51,9 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
       // 사용자가 없으면 알림 개수 초기화
       setUnreadCount(0);
     }
-  }, [loadUnreadCount, user]);
+  }, [loadUnreadCount, user, setUnreadCount]);
 
-  const handleSignOut = async () => {
+  const handleSignOut = useCallback(async () => {
     if (signingOut) return; // 중복 실행 방지
 
     setSigningOut(true);
@@ -94,7 +94,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
     } finally {
       setSigningOut(false);
     }
-  };
+  }, [signingOut, setUser, setUnreadCount, messageApi, router]);
 
   // 로그인이 필요한 페이지들
   const authRequiredPaths = ["/groups", "/invitations", "/notifications", "/mypage"];
@@ -143,13 +143,13 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
   const userMenuItems: MenuProps["items"] = useMemo(
     () => [
       {
-        key: "mypage",
+        key: "profile",
         icon: <UserOutlined />,
-        label: "마이페이지",
+        label: "프로필",
         onClick: () => router.push("/mypage"),
       },
       {
-        type: "divider",
+        type: "divider" as const,
       },
       {
         key: "logout",
@@ -159,7 +159,7 @@ export function NavigationWrapper({ children }: NavigationWrapperProps) {
         disabled: signingOut,
       },
     ],
-    [signingOut, router]
+    [signingOut, router, handleSignOut]
   );
 
   // 인증 페이지인 경우 네비게이션 숨김

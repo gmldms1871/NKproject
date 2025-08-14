@@ -36,6 +36,7 @@ import {
   generateReportSummary,
   GeneratedSummary,
   ReportWithDetails,
+  FormResponseData,
 } from "@/lib/reports";
 import { formatDate } from "@/lib/utils";
 
@@ -65,7 +66,7 @@ export default function RefinePage() {
       { title: "상세", href: `/groups/${groupId}/reports/${reportId}` },
       { title: "AI 정제", href: `/groups/${groupId}/reports/${reportId}/refine` },
     ]);
-  }, [groupId, reportId]);
+  }, [groupId, reportId, setTitle, setBreadcrumbs]);
 
   // 데이터 로드
   const loadReport = useCallback(async () => {
@@ -108,7 +109,7 @@ export default function RefinePage() {
     } finally {
       setLoading(false);
     }
-  }, [user, reportId, groupId]);
+  }, [user, reportId, groupId, router]);
 
   useEffect(() => {
     if (!user) {
@@ -118,7 +119,7 @@ export default function RefinePage() {
     if (reportId) {
       loadReport();
     }
-  }, [user, reportId, loadReport]);
+  }, [user, reportId, loadReport, router]);
 
   // 권한 확인
   const canRefine = () => {
@@ -164,12 +165,12 @@ export default function RefinePage() {
   };
 
   // 학생 응답 렌더링
-  const renderStudentResponse = (response: any) => {
+  const renderStudentResponse = (response: FormResponseData) => {
     if (!response) return null;
 
     return (
       <div className="space-y-4">
-        {response.responses?.map((resp: any, index: number) => (
+        {response.responses?.map((resp, index: number) => (
           <Card key={index} size="small" className="bg-gray-50">
             <div className="mb-2">
               <Text strong>{resp.questionText}</Text>
@@ -337,8 +338,8 @@ export default function RefinePage() {
                     {report.result
                       ? formatDate(report.updated_at || "")
                       : summary?.generatedAt
-                      ? formatDate(summary.generatedAt)
-                      : "생성되지 않음"}
+                        ? formatDate(summary.generatedAt)
+                        : "생성되지 않음"}
                   </Text>
                 </div>
               </div>

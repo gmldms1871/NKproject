@@ -442,8 +442,8 @@ function SendFormModal({ open, onCancel, onConfirm, formTitle, loading }: SendFo
                                     {isDisabled
                                       ? "반 전체 선택됨"
                                       : isSelected
-                                      ? "선택됨"
-                                      : "개별 전송"}
+                                        ? "선택됨"
+                                        : "개별 전송"}
                                   </Button>
                                 </div>
                               );

@@ -102,9 +102,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // 주기적 세션 검증 (30분마다)
   useEffect(() => {
     if (user) {
-      const interval = setInterval(async () => {
-        await refreshSession();
-      }, 30 * 60 * 1000); // 30분
+      const interval = setInterval(
+        async () => {
+          await refreshSession();
+        },
+        30 * 60 * 1000
+      ); // 30분
 
       return () => clearInterval(interval);
     }

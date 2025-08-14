@@ -77,7 +77,7 @@ export default function ReportsPage() {
       { title: "그룹", href: `/groups/${groupId}` },
       { title: "보고서", href: `/groups/${groupId}/reports` },
     ]);
-  }, [groupId]);
+  }, [groupId, setTitle, setBreadcrumbs]);
 
   // 데이터 로드
   const loadReports = useCallback(async () => {

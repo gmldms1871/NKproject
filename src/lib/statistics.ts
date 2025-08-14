@@ -211,7 +211,7 @@ export async function getGroupStatistics(
 
 // 월별 통계 조회
 async function getMonthlyStats(groupId: string) {
-  const months = [];
+  const months: string[] = [];
   const now = new Date();
 
   for (let i = 5; i >= 0; i--) {
@@ -227,7 +227,12 @@ async function getMonthlyStats(groupId: string) {
 
   const formIds = groupForms?.map((f) => f.id) || [];
 
-  const monthlyStats = [];
+  const monthlyStats: {
+    month: string;
+    formsCreated: number;
+    responsesReceived: number;
+    reportsCompleted: number;
+  }[] = [];
 
   for (const month of months) {
     const startDate = `${month}-01`;
@@ -291,7 +296,13 @@ async function getClassStats(groupId: string) {
 
   if (error || !classes) return [];
 
-  const classStats = [];
+  const classStats: {
+    classId: string;
+    className: string;
+    memberCount: number;
+    responseCount: number;
+    completionRate: number;
+  }[] = [];
 
   for (const classItem of classes) {
     // 해당 클래스의 멤버 수 조회
@@ -331,7 +342,13 @@ async function getFormStats(groupId: string) {
 
   if (error || !forms) return [];
 
-  const formStats = [];
+  const formStats: {
+    formId: string;
+    formTitle: string;
+    totalResponses: number;
+    completionRate: number;
+    averageRating?: number;
+  }[] = [];
 
   for (const form of forms) {
     // 해당 폼의 응답 수 조회
@@ -345,7 +362,7 @@ async function getFormStats(groupId: string) {
     const completionRate = totalResponses > 0 ? (completedResponses / totalResponses) * 100 : 0;
 
     // 평균 평점 계산 (rating_questions가 있는 경우)
-    let averageRating = undefined;
+    let averageRating: number | undefined = undefined;
     if (responses && responses.length > 0) {
       const responseIds = responses.map((r) => r.id);
       const { data: ratingResponses } = await supabaseAdmin

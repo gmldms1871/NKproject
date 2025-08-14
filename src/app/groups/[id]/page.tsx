@@ -120,6 +120,7 @@ export default function GroupDetailPage() {
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [editingRole, setEditingRole] = useState<GroupRole | null>(null);
+  const [activeTab, setActiveTab] = useState("dashboard");
 
   const [roleForm] = Form.useForm();
   const [settingsForm] = Form.useForm();
@@ -701,7 +702,14 @@ export default function GroupDetailPage() {
           대시보드
         </span>
       ),
-      children: <Dashboard groupId={groupId} userId={user?.id || ""} isOwner={isOwner} />,
+      children: (
+        <Dashboard
+          groupId={groupId}
+          userId={user?.id || ""}
+          isOwner={isOwner}
+          activeTab={activeTab}
+        />
+      ),
     },
     {
       key: "members",
@@ -995,7 +1003,12 @@ export default function GroupDetailPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* 탭 컨텐츠 */}
         <Card>
-          <Tabs defaultActiveKey="dashboard" items={tabItems} />
+          <Tabs
+            defaultActiveKey="dashboard"
+            activeKey={activeTab}
+            onChange={setActiveTab}
+            items={tabItems}
+          />
         </Card>
 
         {/* 새로운 초대 모달 */}
