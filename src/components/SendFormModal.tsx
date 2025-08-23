@@ -76,13 +76,13 @@ export default function SendFormModal({
     } finally {
       setLoading(false);
     }
-  }, [groupId, message]); // useCallback 의존성 추가
+  }, [groupId, message]);
 
   useEffect(() => {
     if (open) {
       loadData();
     }
-  }, [open, loadData]); // loadData를 의존성에 추가
+  }, [open, loadData]);
 
   // 개별 멤버 선택/해제
   const toggleMember = (member: GroupMemberWithDetails) => {

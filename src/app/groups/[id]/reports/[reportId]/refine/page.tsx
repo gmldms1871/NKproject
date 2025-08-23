@@ -6,7 +6,6 @@ import {
   Card,
   Button,
   Space,
-  Typography,
   Alert,
   Spin,
   message,
@@ -15,19 +14,16 @@ import {
   Col,
   Descriptions,
   Divider,
-  Collapse,
-  List,
 } from "antd";
 import {
   ArrowLeftOutlined,
   RobotOutlined,
-  FileTextOutlined,
-  UserOutlined,
-  TeamOutlined,
-  CheckCircleOutlined,
   LoadingOutlined,
   DownloadOutlined,
   CopyOutlined,
+  UserOutlined,
+  TeamOutlined,
+  CheckCircleOutlined,
 } from "@ant-design/icons";
 import { useAuth } from "@/contexts/auth-context";
 import { usePageHeader } from "@/contexts/page-header-context";
@@ -39,9 +35,7 @@ import {
   FormResponseData,
 } from "@/lib/reports";
 import { formatDate } from "@/lib/utils";
-
-const { Title, Text, Paragraph } = Typography;
-const { Panel } = Collapse;
+import { downloadReportAsPDF, extractPDFDataFromReport, PdfReportData } from "@/lib/pdf-generator";
 
 export default function RefinePage() {
   const router = useRouter();
@@ -56,48 +50,50 @@ export default function RefinePage() {
   const [summary, setSummary] = useState<GeneratedSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // 페이지 헤더 설정
   useEffect(() => {
-    setTitle("AI 정제");
-    setBreadcrumbs([
-      { title: "그룹", href: `/groups/${groupId}` },
-      { title: "보고서", href: `/groups/${groupId}/reports` },
-      { title: "상세", href: `/groups/${groupId}/reports/${reportId}` },
-      { title: "AI 정제", href: `/groups/${groupId}/reports/${reportId}/refine` },
-    ]);
+    if (groupId && reportId) {
+      setTitle("AI 정제");
+      setBreadcrumbs([
+        { title: "그룹", href: `/groups/${groupId}` },
+        { title: "보고서", href: `/groups/${groupId}/reports` },
+        { title: "상세", href: `/groups/${groupId}/reports/${reportId}` },
+        { title: "AI 정제", href: `/groups/${groupId}/reports/${reportId}/refine` },
+      ]);
+    }
   }, [groupId, reportId, setTitle, setBreadcrumbs]);
 
   // 데이터 로드
   const loadReport = useCallback(async () => {
-    if (!user || !reportId) return;
+    if (!user?.id || !reportId) return;
 
     try {
       setLoading(true);
       const result = await getReportDetails(reportId);
 
-      if (result.success) {
+      if (result.success && result.data) {
         const reportData = result.data;
-        setReport(reportData || null);
+        setReport(reportData);
 
-        // 이미 생성된 요약이 있는지 확인
-        if (reportData?.hasSummary) {
-          // 실제로는 API에서 요약 데이터를 가져와야 함
-          // 여기서는 임시로 빈 객체를 설정
-          setSummary({
-            reportId: reportId,
-            studentSummary: "학생 응답 요약",
+        // 기존에 AI 정제가 완료되었다면 결과를 표시
+        if (reportData.result) {
+          const mockSummary: GeneratedSummary = {
+            reportId: reportData.id,
+            studentSummary: reportData.result,
             timeTeacherSummary: reportData.time_teacher_comment || "",
             teacherSummary: reportData.teacher_comment || "",
-            overallSummary: "전체 요약",
+            overallSummary: reportData.result,
             insights: {
               strengths: ["적극적인 참여", "창의적 사고"],
               weaknesses: ["세부사항 부족", "시간 관리"],
               recommendations: ["추가 학습 자료 제공", "개별 피드백 강화"],
             },
-            generatedAt: new Date().toISOString(),
+            generatedAt: reportData.updated_at || new Date().toISOString(),
             generatedBy: user.id,
-          });
+          };
+          setSummary(mockSummary);
         }
       } else {
         message.error(result.error || "보고서를 불러오는데 실패했습니다.");
@@ -109,7 +105,7 @@ export default function RefinePage() {
     } finally {
       setLoading(false);
     }
-  }, [user, reportId, groupId, router]);
+  }, [user?.id, reportId, groupId, router]);
 
   useEffect(() => {
     if (!user) {
@@ -139,8 +135,8 @@ export default function RefinePage() {
         summaryType: "individual",
       });
 
-      if (result.success) {
-        setSummary(result.data || null);
+      if (result.success && result.data) {
+        setSummary(result.data);
         message.success("AI 요약이 성공적으로 생성되었습니다.");
       } else {
         message.error(result.error || "AI 요약 생성에 실패했습니다.");
@@ -159,34 +155,62 @@ export default function RefinePage() {
     });
   };
 
-  // 최종 보고서 다운로드 (실제로는 PDF 생성 로직 필요)
-  const handleDownload = () => {
-    message.info("PDF 다운로드 기능은 준비 중입니다.");
+  // PDF 다운로드
+  const handleDownload = async () => {
+    if (!report || !summary) {
+      message.error("AI 요약이 생성되어야 PDF 다운로드가 가능합니다.");
+      return;
+    }
+
+    try {
+      setDownloading(true);
+
+      const pdfData: PdfReportData = {
+        ...extractPDFDataFromReport(report),
+        summary: summary,
+      };
+
+      await downloadReportAsPDF(pdfData);
+      message.success("PDF 다운로드가 완료되었습니다.");
+    } catch (error) {
+      console.error("PDF 다운로드 오류:", error);
+      message.error("PDF 다운로드에 실패했습니다.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  // 안전한 텍스트 렌더링 함수
+  const safeText = (text: string | null | undefined, fallback = "정보 없음") => {
+    return text?.trim() || fallback;
   };
 
   // 학생 응답 렌더링
   const renderStudentResponse = (response: FormResponseData) => {
-    if (!response) return null;
+    if (!response || !response.responses) return <div>응답 데이터가 없습니다.</div>;
 
     return (
       <div className="space-y-4">
-        {response.responses?.map((resp, index: number) => (
-          <Card key={index} size="small" className="bg-gray-50">
+        {response.responses.map((resp, index) => (
+          <Card key={`response-${index}`} size="small" className="bg-gray-50">
             <div className="mb-2">
-              <Text strong>{resp.questionText}</Text>
+              <strong>{safeText(resp.questionText, `질문 ${index + 1}`)}</strong>
             </div>
             <div className="bg-white p-3 rounded border">
-              {resp.response.textResponse && (
-                <Paragraph className="mb-0">{resp.response.textResponse}</Paragraph>
-              )}
+              {resp.response.textResponse && <div>{safeText(resp.response.textResponse)}</div>}
               {resp.response.numberResponse !== undefined && (
-                <Text>{resp.response.numberResponse}</Text>
+                <div>{resp.response.numberResponse}</div>
               )}
               {resp.response.ratingResponse !== undefined && (
                 <div className="flex items-center space-x-2">
-                  <Text>평점: {resp.response.ratingResponse}/5</Text>
+                  <span>평점: {resp.response.ratingResponse}/5</span>
                 </div>
               )}
+              {!resp.response.textResponse &&
+                resp.response.numberResponse === undefined &&
+                resp.response.ratingResponse === undefined && (
+                  <div className="text-gray-500">응답 없음</div>
+                )}
             </div>
           </Card>
         ))}
@@ -242,13 +266,16 @@ export default function RefinePage() {
             >
               상세보기로
             </Button>
-            <Title level={2} className="mb-0">
-              AI 정제
-            </Title>
+            <h1 className="text-2xl font-bold mb-0">AI 정제</h1>
           </div>
           <Space>
             {summary && (
-              <Button icon={<DownloadOutlined />} onClick={handleDownload}>
+              <Button
+                icon={downloading ? <LoadingOutlined /> : <DownloadOutlined />}
+                onClick={handleDownload}
+                loading={downloading}
+                type="primary"
+              >
                 PDF 다운로드
               </Button>
             )}
@@ -256,8 +283,11 @@ export default function RefinePage() {
         </div>
 
         <Alert
-          message={`${report.student_name} 학생의 최종 보고서`}
-          description={`${report.form?.title} - ${report.class_name || "미지정 반"}`}
+          message={`${safeText(report.student_name)} 학생의 최종 보고서`}
+          description={`${safeText(report.form?.title)} - ${safeText(
+            report.class_name,
+            "미지정 반"
+          )}`}
           type="success"
           showIcon
         />
@@ -275,6 +305,17 @@ export default function RefinePage() {
               </div>
             }
             className="mb-6"
+            extra={
+              summary && (
+                <Button
+                  size="small"
+                  icon={<CopyOutlined />}
+                  onClick={() => copyToClipboard(summary.overallSummary)}
+                >
+                  복사
+                </Button>
+              )
+            }
           >
             {!report.result && !summary && report.draft_status !== "completed" ? (
               <div className="text-center py-8">
@@ -294,7 +335,7 @@ export default function RefinePage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {/* 재생성 버튼 - 완료된 상태에서만 표시 */}
+                {/* 재생성 버튼 */}
                 {report.draft_status === "completed" && (
                   <div className="flex justify-end mb-4">
                     <Button
@@ -302,45 +343,18 @@ export default function RefinePage() {
                       icon={generating ? <LoadingOutlined /> : <RobotOutlined />}
                       onClick={handleGenerateSummary}
                       loading={generating}
+                      size="small"
                     >
                       재생성
                     </Button>
                   </div>
                 )}
 
-                {/* 학원 분석 결과지 */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <Text strong>NK학원 분석 결과지</Text>
-                    {(report.result || summary?.overallSummary) && (
-                      <Button
-                        size="small"
-                        icon={<CopyOutlined />}
-                        onClick={() =>
-                          copyToClipboard(report.result || summary?.overallSummary || "")
-                        }
-                      >
-                        복사
-                      </Button>
-                    )}
+                {/* AI 생성 결과 */}
+                <div className="bg-gray-50 p-4 rounded-lg max-h-96 overflow-y-auto">
+                  <div className="whitespace-pre-line text-sm leading-relaxed">
+                    {safeText(summary?.overallSummary || report.result)}
                   </div>
-                  <Card size="small" className="bg-white border-2">
-                    <div className="whitespace-pre-line font-mono text-sm">
-                      {report.result || summary?.overallSummary || "AI 분석 결과가 없습니다."}
-                    </div>
-                  </Card>
-                </div>
-
-                {/* 생성일 표시 */}
-                <div className="text-center text-gray-500 text-sm">
-                  <Text>
-                    생성일:{" "}
-                    {report.result
-                      ? formatDate(report.updated_at || "")
-                      : summary?.generatedAt
-                        ? formatDate(summary.generatedAt)
-                        : "생성되지 않음"}
-                  </Text>
                 </div>
               </div>
             )}
@@ -349,63 +363,80 @@ export default function RefinePage() {
 
         {/* 오른쪽 컬럼 - 원본 데이터 */}
         <Col span={12}>
-          {/* 기본 정보 */}
-          <Card title="기본 정보" className="mb-6">
-            <Descriptions column={1} size="small">
-              <Descriptions.Item label="학생명">
-                {report.student_name || "미지정"}
-              </Descriptions.Item>
-              <Descriptions.Item label="반">{report.class_name || "미지정"}</Descriptions.Item>
-              <Descriptions.Item label="폼 제목">
-                {report.form?.title || "알 수 없음"}
-              </Descriptions.Item>
-              <Descriptions.Item label="응답 제출일">
-                {report.formResponse ? formatDate(report.formResponse.submitted_at) : "미제출"}
-              </Descriptions.Item>
-              <Descriptions.Item label="완료일">
-                {formatDate(report.teacher_completed_at)}
-              </Descriptions.Item>
-            </Descriptions>
-          </Card>
-
-          {/* 원본 코멘트 */}
-          <Card title="원본 코멘트" className="mb-6">
-            {report.time_teacher_comment && (
-              <div className="mb-4">
-                <div className="flex items-center space-x-2 mb-2">
-                  <UserOutlined />
-                  <Text strong>시간강사 코멘트</Text>
-                  <Text type="secondary">({formatDate(report.time_teacher_completed_at)})</Text>
+          <div className="space-y-6">
+            {/* 학생 응답 */}
+            <Card
+              title={
+                <div className="flex items-center space-x-2">
+                  <span>학생 응답</span>
                 </div>
-                <Card size="small" className="bg-blue-50">
-                  <Paragraph className="mb-0">{report.time_teacher_comment}</Paragraph>
-                </Card>
-              </div>
-            )}
-
-            {report.teacher_comment && (
-              <div>
-                <div className="flex items-center space-x-2 mb-2">
-                  <TeamOutlined />
-                  <Text strong>선생님 코멘트</Text>
-                  <Text type="secondary">({formatDate(report.teacher_completed_at)})</Text>
-                </div>
-                <Card size="small" className="bg-green-50">
-                  <Paragraph className="mb-0">{report.teacher_comment}</Paragraph>
-                </Card>
-              </div>
-            )}
-          </Card>
-
-          {/* 학생 응답 */}
-          {report.formResponse && (
-            <Card title="학생 응답">
-              <div className="mb-4">
-                <Text type="secondary">제출일: {formatDate(report.formResponse.submitted_at)}</Text>
-              </div>
-              {renderStudentResponse(report.formResponse)}
+              }
+              size="small"
+            >
+              {report.formResponse ? (
+                renderStudentResponse(report.formResponse)
+              ) : (
+                <div className="text-gray-500">응답 데이터가 없습니다.</div>
+              )}
             </Card>
-          )}
+
+            {/* 교사 코멘트 */}
+            {(report.time_teacher_comment || report.teacher_comment) && (
+              <Card title="교사 코멘트" size="small">
+                <div className="space-y-4">
+                  {report.time_teacher_comment && (
+                    <div>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <UserOutlined className="text-blue-600" />
+                        <strong className="text-blue-600">시간강사 코멘트:</strong>
+                      </div>
+                      <div className="p-3 bg-blue-50 rounded">
+                        {safeText(report.time_teacher_comment)}
+                      </div>
+                    </div>
+                  )}
+
+                  {report.teacher_comment && (
+                    <div>
+                      <div className="flex items-center space-x-2 mb-2">
+                        <TeamOutlined className="text-purple-600" />
+                        <strong className="text-purple-600">담임교사 코멘트:</strong>
+                      </div>
+                      <div className="p-3 bg-purple-50 rounded">
+                        {safeText(report.teacher_comment)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )}
+
+            {/* 보고서 정보 */}
+            <Card title="보고서 정보" size="small">
+              <Descriptions column={1} size="small">
+                <Descriptions.Item label="학생명">
+                  {safeText(report.student_name)}
+                </Descriptions.Item>
+                <Descriptions.Item label="반명">
+                  {safeText(report.class_name, "미지정")}
+                </Descriptions.Item>
+                <Descriptions.Item label="폼 제목">
+                  {safeText(report.form?.title)}
+                </Descriptions.Item>
+                <Descriptions.Item label="생성일">
+                  {formatDate(report.created_at)}
+                </Descriptions.Item>
+                <Descriptions.Item label="완료일">
+                  {formatDate(report.updated_at)}
+                </Descriptions.Item>
+                <Descriptions.Item label="상태">
+                  <Tag color="success" icon={<CheckCircleOutlined />}>
+                    완료됨
+                  </Tag>
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          </div>
         </Col>
       </Row>
     </div>
